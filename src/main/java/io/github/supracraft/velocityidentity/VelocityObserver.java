@@ -15,6 +15,12 @@ public final class VelocityObserver {
     }
 
     public static EnvironmentObservation observe(ProxyServer server) {
+        return observe(server, SessionAuthority.observeConfigured());
+    }
+
+    public static EnvironmentObservation observe(
+            ProxyServer server,
+            SessionAuthority sessionAuthority) {
         ProxyVersion version = server.getVersion();
         ProxyConfig config = server.getConfiguration();
 
@@ -26,9 +32,15 @@ public final class VelocityObserver {
         }
 
         Map<String, String> plugins = new TreeMap<>();
-        for (PluginContainer plugin : server.getPluginManager().getPlugins()) {
-            String pluginVersion = plugin.getDescription().getVersion().orElse("unknown");
-            plugins.put(plugin.getDescription().getId(), pluginVersion);
+        for (PluginContainer plugin :
+                server.getPluginManager().getPlugins()) {
+            String pluginVersion =
+                    plugin.getDescription()
+                            .getVersion()
+                            .orElse("unknown");
+            plugins.put(
+                    plugin.getDescription().getId(),
+                    pluginVersion);
         }
 
         return new EnvironmentObservation(
@@ -41,6 +53,8 @@ public final class VelocityObserver {
                 config.getAttemptConnectionOrder(),
                 config.getForcedHosts(),
                 plugins,
+                sessionAuthority.issuer(),
+                sessionAuthority.hasJoinedEndpoint().toString(),
                 Set.of("player-info-forwarding-mode"));
     }
 }
