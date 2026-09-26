@@ -32,7 +32,7 @@ class VelocityIdentityConfigTest {
                 configFile,
                 String.join(
                         System.lineSeparator(),
-                        "default.class=NATIVE",
+                        "default.class=ONLINE_SESSION",
                         "default.servers=*",
                         "host.guest.example.net.class=GUEST",
                         "host.guest.example.net.servers=guest-gym"));
@@ -44,6 +44,27 @@ class VelocityIdentityConfigTest {
                 AdmissionClass.GUEST,
                 config.desiredPolicy()
                         .select("guest.example.net")
+                        .admissionClass());
+    }
+
+    @Test
+    void acceptsLegacyNativeAliasAsOnlineSession() throws Exception {
+        Path configFile =
+                temp.resolve("velocity-identity.properties");
+        Files.writeString(
+                configFile,
+                String.join(
+                        System.lineSeparator(),
+                        "default.class=NATIVE",
+                        "default.servers=*"));
+
+        VelocityIdentityConfig config =
+                VelocityIdentityConfig.load(configFile);
+
+        assertEquals(
+                AdmissionClass.ONLINE_SESSION,
+                config.desiredPolicy()
+                        .defaultProfile()
                         .admissionClass());
     }
 
