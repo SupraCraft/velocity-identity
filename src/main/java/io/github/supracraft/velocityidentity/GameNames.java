@@ -19,6 +19,6 @@ public final class GameNames {
 
     public static String guest(UUID uuid) {
         String compact = uuid.toString().replace("-", "");
-        return "Guest_" + compact.substring(0, 8);
+        return "Guest_" + compact.substring(0, 10);
     }
 }
