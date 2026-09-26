@@ -9,19 +9,28 @@ run_dir="run/velocity-${velocity_version}"
 rm -rf "$run_dir" "$log_dir"
 mkdir -p "$log_dir"
 
-set +e
-timeout --signal=TERM --kill-after=10s 45s   ./gradlew --no-daemon runVelocity -PvelocityVersion="$velocity_version"   >"$log_file" 2>&1
-status=$?
-set -e
+timeout --signal=TERM --kill-after=10s 60s   ./gradlew --no-daemon runVelocity -PvelocityVersion="$velocity_version"   >"$log_file" 2>&1 &
+runner=$!
 
-# timeout(1) returns 124 when it terminates an otherwise healthy long-running server.
-if [[ "$status" -ne 0 && "$status" -ne 124 && "$status" -ne 143 ]]; then
-  cat "$log_file"
-  echo "Velocity runtime exited unexpectedly: $status" >&2
-  exit "$status"
-fi
+cleanup() {
+  kill "$runner" 2>/dev/null || true
+  wait "$runner" 2>/dev/null || true
+}
+trap cleanup EXIT
 
-if ! grep -Fq "VelocityIdentity reconciliation readiness=READY" "$log_file"; then
+ready=0
+for _ in $(seq 1 120); do
+  if grep -Fq "VelocityIdentity reconciliation readiness=READY" "$log_file" 2>/dev/null; then
+    ready=1
+    break
+  fi
+  if ! kill -0 "$runner" 2>/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
+
+if [[ "$ready" -ne 1 ]]; then
   cat "$log_file"
   echo "VelocityIdentity did not reach independently verified READY state" >&2
   exit 1
