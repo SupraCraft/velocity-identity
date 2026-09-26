@@ -175,7 +175,7 @@ EOF
 
 printf '%s\n' "$secret" >"$velocity_run/forwarding.secret"
 cat >"$velocity_run/plugins/velocityidentity/velocity-identity.properties" <<'EOF'
-default.class=MICROSOFT
+default.class=ONLINE_SESSION
 default.servers=*
 host.127.0.0.1.class=GUEST
 host.127.0.0.1.servers=backend
