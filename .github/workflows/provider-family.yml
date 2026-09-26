@@ -12,6 +12,9 @@ on:
       - 'scripts/drasl-online-client.js'
       - 'scripts/drasl-bad-password-client.js'
       - 'scripts/drasl-live-smoke.sh'
+      - 'scripts/yggdrasil-live-client.js'
+      - 'scripts/yggdrasil-bad-password-client.js'
+      - 'scripts/minecrauth-live-smoke.sh'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +31,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up exact Temurin 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -36,15 +38,37 @@ jobs:
           java-version: '25.0.4+7.0.LTS'
           check-latest: false
           force-download: true
-
       - name: Set up Go 1.25.0
         uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
         with:
           go-version: '1.25.0'
           check-latest: false
           cache: false
-
       - name: Qualify real Drasl service
         run: |
           chmod +x gradlew scripts/drasl-live-smoke.sh
           scripts/drasl-live-smoke.sh 4.2.0
+
+  minecrauth:
+    name: Minecrauth live service / Velocity 4.2.0
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up exact Temurin 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25.0.4+7.0.LTS'
+          check-latest: false
+          force-download: true
+      - name: Set up Go 1.25.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.25.0'
+          check-latest: false
+          cache: false
+      - name: Qualify real Minecrauth service
+        run: |
+          chmod +x gradlew scripts/minecrauth-live-smoke.sh
+          scripts/minecrauth-live-smoke.sh 4.2.0
