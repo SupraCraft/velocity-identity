@@ -69,6 +69,14 @@ public final class ReconciliationService {
     public synchronized ReconciliationResult reconcile(
             String trigger) throws Exception {
         Objects.requireNonNull(trigger, "trigger");
+
+        authorityGate.beginReconciliation();
+        WorkloadTrustStore beforeWorkloads =
+                workloadTrustRuntime.current();
+        ApplyReceipt receipt = null;
+        EnvironmentObservation rollbackObservation = null;
+        RuntimeEvidenceWriter evidence = null;
+
         try {
             Files.createDirectories(dataDirectory);
             Path configPath =
@@ -81,21 +89,21 @@ public final class ReconciliationService {
 
             EnvironmentObservation observation =
                     VelocityObserver.observe(server, sessionAuthority);
+            rollbackObservation = observation;
             PolicyPlan plan = PolicyPlanner.plan(
                     observation,
                     runtime.current(),
                     desired.desiredPolicy(),
                     !desiredWorkloads.isEmpty());
 
-            RuntimeEvidenceWriter evidence =
-                    new RuntimeEvidenceWriter(dataDirectory);
+            evidence = new RuntimeEvidenceWriter(dataDirectory);
             evidence.writeObservation(observation);
             evidence.writePlan(plan);
 
             EnvironmentObservation preApplyObservation =
                     VelocityObserver.observe(server, sessionAuthority);
-            ApplyReceipt receipt =
-                    runtime.apply(plan, preApplyObservation);
+            rollbackObservation = preApplyObservation;
+            receipt = runtime.apply(plan, preApplyObservation);
             evidence.writeApply(receipt);
 
             if (receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
@@ -105,6 +113,7 @@ public final class ReconciliationService {
 
             EnvironmentObservation verificationObservation =
                     VelocityObserver.observe(server, sessionAuthority);
+            rollbackObservation = verificationObservation;
             VerificationReport verification = PolicyVerifier.verify(
                     plan,
                     verificationObservation,
@@ -112,8 +121,6 @@ public final class ReconciliationService {
 
             WorkloadTrustStore effectiveWorkloads =
                     workloadTrustRuntime.current();
-            evidence.writeWorkloadTrust(
-                    effectiveWorkloads.summary());
             if (verification.status()
                     == VerificationReport.VerificationStatus.PASS
                     && !effectiveWorkloads.fingerprint().equals(
@@ -131,12 +138,24 @@ public final class ReconciliationService {
             }
             evidence.writeVerification(verification);
 
-            if ((receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
-                    || receipt.status() == ApplyReceipt.ApplyStatus.NOOP)
-                    && verification.status()
-                    == VerificationReport.VerificationStatus.PASS) {
+            boolean verified =
+                    (receipt.status()
+                            == ApplyReceipt.ApplyStatus.APPLIED
+                            || receipt.status()
+                            == ApplyReceipt.ApplyStatus.NOOP)
+                            && verification.status()
+                            == VerificationReport.VerificationStatus.PASS;
+
+            if (verified) {
+                evidence.writeWorkloadTrust(
+                        effectiveWorkloads.summary());
                 authorityGate.markVerified();
             } else {
+                restoreLastKnownGood(
+                        receipt,
+                        beforeWorkloads,
+                        rollbackObservation,
+                        evidence);
                 authorityGate.markFailure();
             }
 
@@ -147,8 +166,59 @@ public final class ReconciliationService {
                     verification.status(),
                     plan.planFingerprint());
         } catch (Exception error) {
-            authorityGate.markFailure();
+            boolean recovered = false;
+            try {
+                restoreLastKnownGood(
+                        receipt,
+                        beforeWorkloads,
+                        rollbackObservation,
+                        evidence);
+                recovered = true;
+            } catch (Exception rollbackError) {
+                error.addSuppressed(rollbackError);
+            }
+            if (recovered) {
+                authorityGate.markFailure();
+            } else {
+                authorityGate.markUnrecoverableFailure();
+            }
             throw error;
+        }
+    }
+
+    private void restoreLastKnownGood(
+            ApplyReceipt receipt,
+            WorkloadTrustStore beforeWorkloads,
+            EnvironmentObservation observation,
+            RuntimeEvidenceWriter evidence) throws Exception {
+        if (receipt != null
+                && receipt.status()
+                == ApplyReceipt.ApplyStatus.APPLIED) {
+            EnvironmentObservation rollbackObservation =
+                    observation != null
+                            ? observation
+                            : VelocityObserver.observe(
+                            server,
+                            sessionAuthority);
+            ApplyReceipt rollback =
+                    runtime.rollback(
+                            receipt,
+                            rollbackObservation);
+            if (evidence != null) {
+                evidence.writeRollback(rollback);
+            }
+            if (rollback.status()
+                    != ApplyReceipt.ApplyStatus.ROLLED_BACK) {
+                throw new IllegalStateException(
+                        "Unable to restore last verified admission policy: "
+                                + rollback.status());
+            }
+        }
+
+        workloadTrustRuntime.apply(beforeWorkloads);
+        if (evidence != null) {
+            evidence.writeWorkloadTrust(
+                    beforeWorkloads.summary());
         }
     }
 }

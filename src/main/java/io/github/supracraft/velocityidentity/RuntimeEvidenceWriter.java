@@ -30,6 +30,10 @@ public final class RuntimeEvidenceWriter {
         write("apply.json", receipt);
     }
 
+    public void writeRollback(ApplyReceipt receipt) throws IOException {
+        write("rollback.json", receipt);
+    }
+
     public void writeVerification(VerificationReport report) throws IOException {
         write("verification.json", report);
     }

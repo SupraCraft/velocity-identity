@@ -23,6 +23,7 @@ The plugin writes machine-readable evidence under its Velocity data directory in
 - `observation.json`
 - `plan.json`
 - `apply.json`
+- `rollback.json` (written when a failed reconciliation restores the prior policy)
 - `verification.json`\n- `workload-trust.json`
 
 Unknown runtime facts remain explicit unknowns rather than inferred from unsupported internals.
