@@ -17,7 +17,9 @@ host.127.0.0.1.class=GUEST
 host.127.0.0.1.servers=*
 EOF
 
-timeout --signal=TERM --kill-after=10s 90s   ./gradlew --no-daemon runVelocity -PvelocityVersion="$velocity_version"   >"$log_file" 2>&1 &
+timeout --signal=TERM --kill-after=10s 90s \
+  ./gradlew --no-daemon runVelocity -PvelocityVersion="$velocity_version" \
+  >"$log_file" 2>&1 &
 runner=$!
 
 cleanup() {
@@ -46,10 +48,13 @@ fi
 
 listen_port=""
 for _ in $(seq 1 80); do
-  listen_line="$(grep -E 'Listening on .+:[0-9]+ "$log_file" 2>/dev/null | tail -n 1 || true)"
+  listen_line="$(grep -F 'Listening on ' "$log_file" 2>/dev/null | tail -n 1 || true)"
   if [[ -n "$listen_line" ]]; then
-    listen_port="$(printf '%s\n' "$listen_line" | sed -E 's/.*:([0-9]+)$/\1/')"
-    break
+    listen_port="$(printf '%s\n' "$listen_line" | sed -E 's/.*:([0-9]+).*/\1/')"
+    if [[ "$listen_port" =~ ^[0-9]+$ ]]; then
+      break
+    fi
+    listen_port=""
   fi
   if ! kill -0 "$runner" 2>/dev/null; then
     break
@@ -65,9 +70,16 @@ fi
 
 socket_ready=0
 for _ in $(seq 1 40); do
-  if (exec 3<>"/dev/tcp/127.0.0.1/$listen_port") 2>/dev/null; then
-    exec 3>&-
-    exec 3<&-
+  if python3 - "$listen_port" <<'PY'
+import socket, sys
+port = int(sys.argv[1])
+try:
+    with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+        pass
+except OSError:
+    raise SystemExit(1)
+PY
+  then
     socket_ready=1
     break
   fi
