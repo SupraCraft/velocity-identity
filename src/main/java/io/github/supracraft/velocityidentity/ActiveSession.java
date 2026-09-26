@@ -1,15 +1,14 @@
 package io.github.supracraft.velocityidentity;
 
 import java.util.Objects;
-import java.util.UUID;
 
 public record ActiveSession(
-        UUID playerUuid,
         AdmissionProfile profile,
-        GameIdentity gameIdentity) {
+        GameIdentity gameIdentity,
+        long generation) {
 
     public ActiveSession {
-        playerUuid = Objects.requireNonNull(playerUuid, "playerUuid");
         profile = Objects.requireNonNull(profile, "profile");
+        gameIdentity = Objects.requireNonNull(gameIdentity, "gameIdentity");
     }
 }
