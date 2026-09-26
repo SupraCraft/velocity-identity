@@ -32,7 +32,7 @@ class WorkloadIdentityProviderTest {
                         challenge,
                         response(
                                 "bot-key",
-                                sign(fixture.keyPair, challenge))));
+                                sign(fixture.keyPair, challenge, "bot-key"))));
 
         assertEquals(
                 ProviderDisposition.AUTHENTICATED,
@@ -69,7 +69,7 @@ class WorkloadIdentityProviderTest {
                         challenge,
                         response(
                                 "bot-key",
-                                sign(other, challenge))));
+                                sign(other, challenge, "bot-key"))));
 
         assertEquals(
                 ProviderDisposition.DENIED,
@@ -95,7 +95,7 @@ class WorkloadIdentityProviderTest {
                         fresh,
                         response(
                                 "bot-key",
-                                sign(fixture.keyPair, original))));
+                                sign(fixture.keyPair, original, "bot-key"))));
 
         assertEquals(
                 ProviderDisposition.DENIED,
@@ -114,7 +114,7 @@ class WorkloadIdentityProviderTest {
                         challenge,
                         response(
                                 "unknown",
-                                sign(fixture.keyPair, challenge))));
+                                sign(fixture.keyPair, challenge, "unknown"))));
 
         assertEquals(
                 ProviderDisposition.DENIED,
@@ -190,13 +190,47 @@ class WorkloadIdentityProviderTest {
                 .array();
     }
 
+    @Test
+    void proofIsBoundToKeyId() throws Exception {
+        KeyPair pair = KeyPairGenerator
+                .getInstance("Ed25519")
+                .generateKeyPair();
+        byte[] challenge =
+                WorkloadChallengeProtocol.newChallenge(
+                        new java.security.SecureRandom());
+
+        byte[] signature = sign(
+                pair,
+                challenge,
+                "bot-key");
+
+        assertEquals(
+                true,
+                WorkloadChallengeProtocol.verify(
+                        pair.getPublic(),
+                        challenge,
+                        "bot-key",
+                        signature));
+        assertEquals(
+                false,
+                WorkloadChallengeProtocol.verify(
+                        pair.getPublic(),
+                        challenge,
+                        "other-key",
+                        signature));
+    }
+
     private static byte[] sign(
             KeyPair pair,
-            byte[] challenge) throws Exception {
+            byte[] challenge,
+            String keyId) throws Exception {
         Signature signature =
                 Signature.getInstance("Ed25519");
         signature.initSign(pair.getPrivate());
-        signature.update(challenge);
+        signature.update(
+                WorkloadChallengeProtocol.signingPayload(
+                        challenge,
+                        keyId));
         return signature.sign();
     }
 
