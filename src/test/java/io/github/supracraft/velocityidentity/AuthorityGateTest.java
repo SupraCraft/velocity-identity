@@ -20,6 +20,40 @@ class AuthorityGateTest {
         assertEquals(AuthorityGate.Readiness.FAILED, gate.readiness());
     }
 
+
+    @Test
+    void reconciliationTemporarilyClosesLoginAndCanRecover() {
+        AuthorityGate gate = new AuthorityGate();
+        gate.markVerified();
+
+        gate.beginReconciliation();
+
+        assertFalse(gate.acceptsLogins());
+        assertEquals(
+                AuthorityGate.Readiness.STARTING,
+                gate.readiness());
+
+        gate.markFailure();
+
+        assertTrue(gate.acceptsLogins());
+        assertEquals(
+                AuthorityGate.Readiness.DEGRADED,
+                gate.readiness());
+    }
+
+    @Test
+    void unrecoverableFailureInvalidatesLastKnownGood() {
+        AuthorityGate gate = new AuthorityGate();
+        gate.markVerified();
+
+        gate.markUnrecoverableFailure();
+
+        assertFalse(gate.acceptsLogins());
+        assertEquals(
+                AuthorityGate.Readiness.FAILED,
+                gate.readiness());
+    }
+
     @Test
     void laterFailureRetainsLastKnownGoodPolicy() {
         AuthorityGate gate = new AuthorityGate();

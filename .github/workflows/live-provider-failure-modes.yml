@@ -1,0 +1,71 @@
+name: live-provider-failure-modes
+
+on:
+  push:
+    paths:
+      - 'build.gradle.kts'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'settings.gradle.kts'
+      - 'src/**'
+      - 'scripts/yggdrasil-live-client.js'
+      - 'scripts/yggdrasil-expected-login-failure.js'
+      - 'scripts/drasl-session-authority-outage-live.sh'
+      - 'scripts/drasl-minecrauth-name-collision-live.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-provider-failure-modes-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  session-authority-outage:
+    name: Real Drasl auth + unavailable Velocity hasJoined
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up exact Temurin 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25.0.4+7.0.LTS'
+          check-latest: false
+          force-download: true
+      - name: Set up Go 1.25.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.25.0'
+          check-latest: false
+          cache: false
+      - name: Qualify fail-closed session verification outage
+        run: |
+          chmod +x gradlew scripts/drasl-session-authority-outage-live.sh
+          scripts/drasl-session-authority-outage-live.sh
+
+  cross-realm-name-collision:
+    name: Real Drasl + Minecrauth same-name UUID separation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up exact Temurin 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25.0.4+7.0.LTS'
+          check-latest: false
+          force-download: true
+      - name: Set up Go 1.25.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.25.0'
+          check-latest: false
+          cache: false
+      - name: Qualify same-name identities remain UUID-distinct
+        run: |
+          chmod +x gradlew scripts/drasl-minecrauth-name-collision-live.sh
+          scripts/drasl-minecrauth-name-collision-live.sh

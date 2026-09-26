@@ -16,6 +16,10 @@ public final class AuthorityGate {
         return current == Readiness.READY || current == Readiness.DEGRADED;
     }
 
+    public void beginReconciliation() {
+        readiness.set(Readiness.STARTING);
+    }
+
     public void markVerified() {
         hasVerifiedPolicy = true;
         readiness.set(Readiness.READY);
@@ -23,6 +27,11 @@ public final class AuthorityGate {
 
     public void markFailure() {
         readiness.set(hasVerifiedPolicy ? Readiness.DEGRADED : Readiness.FAILED);
+    }
+
+    public void markUnrecoverableFailure() {
+        hasVerifiedPolicy = false;
+        readiness.set(Readiness.FAILED);
     }
 
     public enum Readiness {

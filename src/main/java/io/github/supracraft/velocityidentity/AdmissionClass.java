@@ -1,7 +1,7 @@
 package io.github.supracraft.velocityidentity;
 
 public enum AdmissionClass {
-    MICROSOFT,
+    ONLINE_SESSION,
     FEDERATED,
     WORKLOAD,
     GUEST

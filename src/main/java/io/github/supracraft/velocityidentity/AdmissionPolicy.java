@@ -14,14 +14,31 @@ public record AdmissionPolicy(
         defaultProfile = Objects.requireNonNull(defaultProfile, "defaultProfile");
         TreeMap<String, AdmissionProfile> normalized = new TreeMap<>();
         Objects.requireNonNull(profilesByHost, "profilesByHost").forEach(
-                (host, profile) -> normalized.put(normalizeHost(host), Objects.requireNonNull(profile, "profile")));
+                (host, profile) -> normalized.put(
+                        normalizeHost(host),
+                        Objects.requireNonNull(profile, "profile")));
         profilesByHost = Collections.unmodifiableMap(normalized);
     }
 
-    public static AdmissionPolicy microsoftOnly() {
+    public static AdmissionPolicy onlineSessionOnly() {
         return new AdmissionPolicy(
-                new AdmissionProfile("default", AdmissionClass.MICROSOFT, java.util.Set.of("*")),
+                new AdmissionProfile(
+                        "default",
+                        AdmissionClass.ONLINE_SESSION,
+                        java.util.Set.of("*")),
                 Map.of());
+    }
+
+    /** Compatibility alias for the pre-provider-capability name. */
+    @Deprecated
+    public static AdmissionPolicy nativeOnly() {
+        return onlineSessionOnly();
+    }
+
+    /** Compatibility alias for the initial Mojang-specific MVP name. */
+    @Deprecated
+    public static AdmissionPolicy microsoftOnly() {
+        return onlineSessionOnly();
     }
 
     public AdmissionProfile select(String host) {
@@ -34,20 +51,28 @@ public record AdmissionPolicy(
     public String fingerprint() {
         StringBuilder canonical = new StringBuilder();
         appendProfile(canonical, "default", defaultProfile);
-        profilesByHost.forEach((host, profile) -> appendProfile(canonical, host, profile));
+        profilesByHost.forEach(
+                (host, profile) -> appendProfile(canonical, host, profile));
         return Digests.sha256(canonical.toString());
     }
 
-    private static void appendProfile(StringBuilder out, String host, AdmissionProfile profile) {
+    private static void appendProfile(
+            StringBuilder out,
+            String host,
+            AdmissionProfile profile) {
         out.append(host).append('|')
                 .append(profile.id()).append('|')
                 .append(profile.admissionClass()).append('|');
-        profile.allowedServers().stream().sorted().forEach(server -> out.append(server).append(','));
+        profile.allowedServers().stream()
+                .sorted()
+                .forEach(server -> out.append(server).append(','));
         out.append('\n');
     }
 
     public static String normalizeHost(String host) {
-        String normalized = Objects.requireNonNull(host, "host").trim().toLowerCase(Locale.ROOT);
+        String normalized = Objects.requireNonNull(host, "host")
+                .trim()
+                .toLowerCase(Locale.ROOT);
         while (normalized.endsWith(".")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }

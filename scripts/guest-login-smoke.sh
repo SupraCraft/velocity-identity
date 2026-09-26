@@ -11,7 +11,7 @@ rm -rf "$run_dir" "$log_dir"
 mkdir -p "$config_dir" "$log_dir"
 
 cat >"${config_dir}/velocity-identity.properties" <<'EOF'
-default.class=MICROSOFT
+default.class=ONLINE_SESSION
 default.servers=*
 host.127.0.0.1.class=GUEST
 host.127.0.0.1.servers=*

@@ -13,24 +13,79 @@ class VelocityIdentityConfigTest {
     Path temp;
 
     @Test
-    void absentConfigIsMicrosoftOnly() throws Exception {
-        VelocityIdentityConfig config = VelocityIdentityConfig.load(temp.resolve("missing.properties"));
-        assertEquals(AdmissionClass.MICROSOFT, config.desiredPolicy().defaultProfile().admissionClass());
+    void absentConfigIsOnlineSessionOnly() throws Exception {
+        VelocityIdentityConfig config =
+                VelocityIdentityConfig.load(
+                        temp.resolve("missing.properties"));
+        assertEquals(
+                AdmissionClass.ONLINE_SESSION,
+                config.desiredPolicy()
+                        .defaultProfile()
+                        .admissionClass());
     }
 
     @Test
     void parsesExplicitGuestHost() throws Exception {
-        Path configFile = temp.resolve("velocity-identity.properties");
-        Files.writeString(configFile, String.join(System.lineSeparator(),
-                "default.class=MICROSOFT",
-                "default.servers=*",
-                "host.guest.example.net.class=GUEST",
-                "host.guest.example.net.servers=guest-gym"));
+        Path configFile =
+                temp.resolve("velocity-identity.properties");
+        Files.writeString(
+                configFile,
+                String.join(
+                        System.lineSeparator(),
+                        "default.class=ONLINE_SESSION",
+                        "default.servers=*",
+                        "host.guest.example.net.class=GUEST",
+                        "host.guest.example.net.servers=guest-gym"));
 
-        VelocityIdentityConfig config = VelocityIdentityConfig.load(configFile);
+        VelocityIdentityConfig config =
+                VelocityIdentityConfig.load(configFile);
 
         assertEquals(
                 AdmissionClass.GUEST,
-                config.desiredPolicy().select("guest.example.net").admissionClass());
+                config.desiredPolicy()
+                        .select("guest.example.net")
+                        .admissionClass());
+    }
+
+    @Test
+    void acceptsLegacyNativeAliasAsOnlineSession() throws Exception {
+        Path configFile =
+                temp.resolve("velocity-identity.properties");
+        Files.writeString(
+                configFile,
+                String.join(
+                        System.lineSeparator(),
+                        "default.class=NATIVE",
+                        "default.servers=*"));
+
+        VelocityIdentityConfig config =
+                VelocityIdentityConfig.load(configFile);
+
+        assertEquals(
+                AdmissionClass.ONLINE_SESSION,
+                config.desiredPolicy()
+                        .defaultProfile()
+                        .admissionClass());
+    }
+
+    @Test
+    void acceptsLegacyMicrosoftAliasAsOnlineSession() throws Exception {
+        Path configFile =
+                temp.resolve("velocity-identity.properties");
+        Files.writeString(
+                configFile,
+                String.join(
+                        System.lineSeparator(),
+                        "default.class=MICROSOFT",
+                        "default.servers=*"));
+
+        VelocityIdentityConfig config =
+                VelocityIdentityConfig.load(configFile);
+
+        assertEquals(
+                AdmissionClass.ONLINE_SESSION,
+                config.desiredPolicy()
+                        .defaultProfile()
+                        .admissionClass());
     }
 }

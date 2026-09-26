@@ -30,8 +30,22 @@ public final class RuntimeEvidenceWriter {
         write("apply.json", receipt);
     }
 
+    public void clearRollback() throws IOException {
+        Files.createDirectories(stateDirectory);
+        Files.deleteIfExists(stateDirectory.resolve("rollback.json"));
+    }
+
+    public void writeRollback(ApplyReceipt receipt) throws IOException {
+        write("rollback.json", receipt);
+    }
+
     public void writeVerification(VerificationReport report) throws IOException {
         write("verification.json", report);
+    }
+
+    public void writeWorkloadTrust(
+            WorkloadTrustSummary summary) throws IOException {
+        write("workload-trust.json", summary);
     }
 
     private void write(String name, Object value) throws IOException {

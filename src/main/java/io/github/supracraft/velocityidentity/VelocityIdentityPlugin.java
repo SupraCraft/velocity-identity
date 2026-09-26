@@ -16,6 +16,7 @@ import com.velocitypowered.api.event.proxy.server.ServerRegisteredEvent;
 import com.velocitypowered.api.event.proxy.server.ServerUnregisteredEvent;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.InboundConnection;
+import com.velocitypowered.api.proxy.LoginPhaseConnection;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.util.GameProfile;
@@ -24,6 +25,7 @@ import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -45,14 +47,22 @@ public final class VelocityIdentityPlugin {
     private static final Component ROUTE_VIOLATION =
             Component.text("Identity policy denied the resulting server connection.");
 
-    private static final long PENDING_MAX_AGE_NANOS = 5L * 60L * 1_000_000_000L;
-    private static final Duration RECONCILE_DEBOUNCE = Duration.ofMillis(250);
+    private static final long PENDING_MAX_AGE_NANOS =
+            5L * 60L * 1_000_000_000L;
+    private static final Duration RECONCILE_DEBOUNCE =
+            Duration.ofMillis(250);
 
     private final ProxyServer server;
     private final Logger logger;
-    private final PolicyRuntime runtime = new PolicyRuntime(AdmissionPolicy.microsoftOnly());
+    private final PolicyRuntime runtime =
+            new PolicyRuntime(AdmissionPolicy.onlineSessionOnly());
     private final AuthorityGate authorityGate = new AuthorityGate();
+    private final WorkloadTrustRuntime workloadTrustRuntime =
+            new WorkloadTrustRuntime(WorkloadTrustStore.empty());
+    private final SecureRandom workloadRandom = new SecureRandom();
     private final ReconciliationService reconciliation;
+    private final SessionAuthority sessionAuthority;
+    private final ProviderRegistry providers;
     private final AtomicLong generation = new AtomicLong();
     private final AtomicLong reconciliationRequest = new AtomicLong();
 
@@ -70,12 +80,27 @@ public final class VelocityIdentityPlugin {
             @DataDirectory Path dataDirectory) {
         this.server = server;
         this.logger = logger;
-        this.reconciliation =
-                new ReconciliationService(server, dataDirectory, runtime, authorityGate);
+        this.sessionAuthority = SessionAuthority.observeConfigured();
+        this.providers = new ProviderRegistry(
+                List.of(
+                        new VelocityOnlineSessionProvider(sessionAuthority),
+                        new WorkloadIdentityProvider(workloadTrustRuntime)));
+        this.reconciliation = new ReconciliationService(
+                server,
+                dataDirectory,
+                runtime,
+                authorityGate,
+                sessionAuthority,
+                workloadTrustRuntime);
     }
 
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent ignored) {
+        logger.info(
+                "VIP online session authority issuer={} hasJoined={} providers={}",
+                sessionAuthority.issuer(),
+                sessionAuthority.hasJoinedEndpoint(),
+                providers.descriptors().size());
         runReconciliation("startup");
     }
 
@@ -87,13 +112,19 @@ public final class VelocityIdentityPlugin {
     @Subscribe
     public void onServerRegistered(ServerRegisteredEvent event) {
         scheduleReconciliation(
-                "server-registered:" + event.registeredServer().getServerInfo().getName());
+                "server-registered:"
+                        + event.registeredServer()
+                        .getServerInfo()
+                        .getName());
     }
 
     @Subscribe
     public void onServerUnregistered(ServerUnregisteredEvent event) {
         scheduleReconciliation(
-                "server-unregistered:" + event.unregisteredServer().getServerInfo().getName());
+                "server-unregistered:"
+                        + event.unregisteredServer()
+                        .getServerInfo()
+                        .getName());
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
@@ -102,18 +133,24 @@ public final class VelocityIdentityPlugin {
             return;
         }
         if (!authorityGate.acceptsLogins()) {
-            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(AUTHORITY_NOT_READY));
+            event.setResult(
+                    PreLoginEvent.PreLoginComponentResult.denied(
+                            AUTHORITY_NOT_READY));
             return;
         }
 
         cleanupPending();
-        AdmissionProfile profile = runtime.current().select(virtualHost(event.getConnection()));
+        AdmissionProfile profile =
+                runtime.current().select(
+                        virtualHost(event.getConnection()));
         long connectionGeneration = generation.incrementAndGet();
 
         switch (profile.admissionClass()) {
-            case MICROSOFT -> {
+            case ONLINE_SESSION -> {
                 if (event.getResult().isForceOfflineMode()) {
-                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(IDENTITY_CONFLICT));
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    IDENTITY_CONFLICT));
                     return;
                 }
                 pendingByConnection.put(
@@ -122,66 +159,186 @@ public final class VelocityIdentityPlugin {
                                 profile,
                                 null,
                                 null,
+                                null,
+                                null,
+                                false,
                                 connectionGeneration,
                                 System.nanoTime()));
-                event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
+                event.setResult(
+                        PreLoginEvent.PreLoginComponentResult
+                                .forceOnlineMode());
             }
             case GUEST -> {
                 if (event.getResult().isOnlineModeAllowed()) {
-                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(IDENTITY_CONFLICT));
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    IDENTITY_CONFLICT));
                     return;
                 }
                 GameIdentity identity = allocateGuestIdentity();
                 GameProfile expectedProfile =
-                        new GameProfile(identity.gameUuid(), identity.gameName(), List.of());
+                        new GameProfile(
+                                identity.gameUuid(),
+                                identity.gameName(),
+                                List.of());
                 pendingByConnection.put(
                         event.getConnection(),
                         new PendingAdmission(
                                 profile,
+                                null,
+                                "vip-guest",
                                 identity,
                                 expectedProfile,
+                                false,
                                 connectionGeneration,
                                 System.nanoTime()));
-                event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
+                event.setResult(
+                        PreLoginEvent.PreLoginComponentResult
+                                .forceOfflineMode());
             }
-            case FEDERATED, WORKLOAD ->
-                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(UNAVAILABLE));
+            case WORKLOAD -> {
+                if (event.getResult().isOnlineModeAllowed()) {
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    IDENTITY_CONFLICT));
+                    return;
+                }
+                if (!(event.getConnection()
+                        instanceof LoginPhaseConnection loginPhase)) {
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    UNAVAILABLE));
+                    return;
+                }
+
+                byte[] challenge =
+                        WorkloadChallengeProtocol.newChallenge(
+                                workloadRandom);
+                PendingAdmission pending =
+                        new PendingAdmission(
+                                profile,
+                                null,
+                                null,
+                                null,
+                                null,
+                                false,
+                                connectionGeneration,
+                                System.nanoTime());
+                pendingByConnection.put(
+                        event.getConnection(),
+                        pending);
+
+                loginPhase.sendLoginPluginMessage(
+                        WorkloadChallengeProtocol.CHANNEL,
+                        challenge,
+                        responseBody -> {
+                            PendingAdmission current =
+                                    pendingByConnection.get(
+                                            event.getConnection());
+                            if (current == null
+                                    || current.generation()
+                                    != connectionGeneration
+                                    || responseBody == null) {
+                                return;
+                            }
+
+                            ProviderResult result =
+                                    providers.authenticate(
+                                            new ProviderRequest(
+                                                    WorkloadIdentityProvider.MECHANISM,
+                                                    profile,
+                                                    null,
+                                                    false,
+                                                    new WorkloadPresentation(
+                                                            challenge,
+                                                            responseBody)));
+                            if (result.disposition()
+                                    != ProviderDisposition.AUTHENTICATED) {
+                                logger.warn(
+                                        "VIP workload authentication denied provider={} disposition={} detail={}",
+                                        result.providerId(),
+                                        result.disposition(),
+                                        result.detail());
+                                return;
+                            }
+
+                            pendingByConnection.compute(
+                                    event.getConnection(),
+                                    (connection, observed) -> {
+                                        if (observed == null
+                                                || observed.generation()
+                                                != connectionGeneration) {
+                                            return observed;
+                                        }
+                                        return observed.withProviderResult(
+                                                result);
+                                    });
+                        });
+                event.setResult(
+                        PreLoginEvent.PreLoginComponentResult
+                                .forceOfflineMode());
+            }
+            case FEDERATED ->
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    UNAVAILABLE));
         }
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
     public void onGameProfileRequest(GameProfileRequestEvent event) {
-        PendingAdmission pending = pendingByConnection.remove(event.getConnection());
+        PendingAdmission pending =
+                pendingByConnection.remove(event.getConnection());
         if (pending == null) {
             return;
         }
 
         switch (pending.profile().admissionClass()) {
-            case MICROSOFT -> {
+            case ONLINE_SESSION -> {
                 if (!event.isOnlineMode()) {
                     return;
                 }
 
-                GameProfile nativeProfile = event.getOriginalProfile();
-                event.setGameProfile(nativeProfile);
+                ProviderResult result = providers.authenticate(
+                        new ProviderRequest(
+                                VelocityOnlineSessionProvider.MECHANISM,
+                                pending.profile(),
+                                event.getOriginalProfile(),
+                                true));
+                if (result.disposition()
+                        != ProviderDisposition.AUTHENTICATED) {
+                    logger.warn(
+                            "VIP provider denied native profile provider={} disposition={} detail={}",
+                            result.providerId(),
+                            result.disposition(),
+                            result.detail());
+                    return;
+                }
 
-                PendingAdmission resolved = pending.withExpectedProfile(nativeProfile);
+                event.setGameProfile(result.gameProfile());
+                PendingAdmission resolved =
+                        pending.withProviderResult(result);
                 pendingByLogin.put(
-                        PendingLoginKey.of(nativeProfile.getId(), event.getConnection()),
+                        PendingLoginKey.of(
+                                result.gameIdentity().gameUuid(),
+                                event.getConnection()),
                         resolved);
             }
-            case GUEST -> {
-                if (event.isOnlineMode() || pending.expectedProfile() == null) {
+            case GUEST, WORKLOAD -> {
+                if (event.isOnlineMode()
+                        || pending.expectedProfile() == null) {
                     return;
                 }
 
                 event.setGameProfile(pending.expectedProfile());
                 pendingByLogin.put(
-                        PendingLoginKey.of(pending.expectedProfile().getId(), event.getConnection()),
+                        PendingLoginKey.of(
+                                pending.expectedProfile().getId(),
+                                event.getConnection()),
                         pending);
             }
-            case FEDERATED, WORKLOAD -> {
-                // PreLogin denies these classes until a verifier is qualified.
+            case FEDERATED -> {
+                // PreLogin denies direct human federation.
             }
         }
     }
@@ -190,33 +347,62 @@ public final class VelocityIdentityPlugin {
     public void onLogin(LoginEvent event) {
         Player player = event.getPlayer();
         PendingAdmission pending = pendingByLogin.remove(
-                PendingLoginKey.of(player.getUniqueId(), player));
+                PendingLoginKey.of(
+                        player.getUniqueId(),
+                        player));
 
-        if (pending == null || pending.expectedProfile() == null || pending.gameIdentity() == null) {
-            event.setResult(ResultedEvent.ComponentResult.denied(SESSION_MISSING));
+        if (pending == null
+                || pending.expectedProfile() == null
+                || pending.gameIdentity() == null
+                || pending.providerId() == null) {
+            event.setResult(
+                    ResultedEvent.ComponentResult.denied(
+                            SESSION_MISSING));
             return;
         }
 
-        if (!GameProfileInvariant.matchesExactly(pending.expectedProfile(), player.getGameProfile())) {
-            event.setResult(ResultedEvent.ComponentResult.denied(PROFILE_CONFLICT));
+        if (!GameProfileInvariant.matchesExactly(
+                pending.expectedProfile(),
+                player.getGameProfile())) {
+            event.setResult(
+                    ResultedEvent.ComponentResult.denied(
+                            PROFILE_CONFLICT));
             return;
         }
 
         switch (pending.profile().admissionClass()) {
-            case MICROSOFT -> {
-                if (!player.isOnlineMode() || event.getServerIdHash() == null) {
-                    event.setResult(ResultedEvent.ComponentResult.denied(IDENTITY_CONFLICT));
+            case ONLINE_SESSION -> {
+                if (!player.isOnlineMode()
+                        || event.getServerIdHash() == null) {
+                    event.setResult(
+                            ResultedEvent.ComponentResult.denied(
+                                    IDENTITY_CONFLICT));
                     return;
                 }
             }
             case GUEST -> {
                 if (player.isOnlineMode()) {
-                    event.setResult(ResultedEvent.ComponentResult.denied(IDENTITY_CONFLICT));
+                    event.setResult(
+                            ResultedEvent.ComponentResult.denied(
+                                    IDENTITY_CONFLICT));
                     return;
                 }
             }
-            case FEDERATED, WORKLOAD -> {
-                event.setResult(ResultedEvent.ComponentResult.denied(UNAVAILABLE));
+            case WORKLOAD -> {
+                if (player.isOnlineMode()
+                        || pending.principal() == null
+                        || pending.principal().kind()
+                        != PrincipalKind.WORKLOAD) {
+                    event.setResult(
+                            ResultedEvent.ComponentResult.denied(
+                                    IDENTITY_CONFLICT));
+                    return;
+                }
+            }
+            case FEDERATED -> {
+                event.setResult(
+                        ResultedEvent.ComponentResult.denied(
+                                UNAVAILABLE));
                 return;
             }
         }
@@ -225,8 +411,20 @@ public final class VelocityIdentityPlugin {
                 player,
                 new ActiveSession(
                         pending.profile(),
+                        pending.principal(),
+                        pending.providerId(),
                         pending.gameIdentity(),
+                        pending.externalTransferAllowed(),
                         pending.generation()));
+
+        logger.info(
+                "VIP admitted provider={} issuer={} gameUuid={} gameName={}",
+                pending.providerId(),
+                pending.principal() == null
+                        ? "anonymous"
+                        : pending.principal().issuer(),
+                pending.gameIdentity().gameUuid(),
+                pending.gameIdentity().gameName());
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
@@ -237,13 +435,18 @@ public final class VelocityIdentityPlugin {
 
         ActiveSession session = sessions.get(event.getPlayer());
         if (session == null) {
-            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            event.setResult(
+                    ServerPreConnectEvent.ServerResult.denied());
             return;
         }
 
-        var target = event.getResult().getServer().orElse(null);
-        if (target == null || !session.profile().allowsServer(target.getServerInfo().getName())) {
-            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+        var target =
+                event.getResult().getServer().orElse(null);
+        if (target == null
+                || !session.profile().allowsServer(
+                target.getServerInfo().getName())) {
+            event.setResult(
+                    ServerPreConnectEvent.ServerResult.denied());
         }
     }
 
@@ -254,17 +457,21 @@ public final class VelocityIdentityPlugin {
         }
 
         ActiveSession session = sessions.get(event.player());
-        if (session == null || session.profile().admissionClass() != AdmissionClass.MICROSOFT) {
-            event.setResult(PreTransferEvent.TransferResult.denied());
+        if (session == null
+                || !session.externalTransferAllowed()) {
+            event.setResult(
+                    PreTransferEvent.TransferResult.denied());
         }
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
     public void onServerConnected(ServerConnectedEvent event) {
         ActiveSession session = sessions.get(event.getPlayer());
-        String serverName = event.getServer().getServerInfo().getName();
+        String serverName =
+                event.getServer().getServerInfo().getName();
 
-        if (session == null || !session.profile().allowsServer(serverName)) {
+        if (session == null
+                || !session.profile().allowsServer(serverName)) {
             logger.error(
                     "VelocityIdentity postcondition violation: player={} uuid={} server={}; disconnecting",
                     event.getPlayer().getUsername(),
@@ -278,7 +485,10 @@ public final class VelocityIdentityPlugin {
     public void onDisconnect(DisconnectEvent event) {
         Player player = event.getPlayer();
         sessions.remove(player);
-        pendingByLogin.remove(PendingLoginKey.of(player.getUniqueId(), player));
+        pendingByLogin.remove(
+                PendingLoginKey.of(
+                        player.getUniqueId(),
+                        player));
     }
 
     private void scheduleReconciliation(String trigger) {
@@ -295,7 +505,8 @@ public final class VelocityIdentityPlugin {
 
     private void runReconciliation(String trigger) {
         try {
-            ReconciliationResult result = reconciliation.reconcile(trigger);
+            ReconciliationResult result =
+                    reconciliation.reconcile(trigger);
             logger.info(
                     "VelocityIdentity reconciliation trigger={} readiness={} apply={} verify={} plan={}",
                     result.trigger(),
@@ -323,14 +534,20 @@ public final class VelocityIdentityPlugin {
             UUID uuid = UUID.randomUUID();
             String name = GameNames.guest(uuid);
 
-            boolean pendingNameCollision = pendingByConnection.values().stream()
-                    .map(PendingAdmission::gameIdentity)
-                    .filter(java.util.Objects::nonNull)
-                    .anyMatch(identity -> identity.gameName().equalsIgnoreCase(name));
-            boolean pendingLoginCollision = pendingByLogin.values().stream()
-                    .map(PendingAdmission::gameIdentity)
-                    .filter(java.util.Objects::nonNull)
-                    .anyMatch(identity -> identity.gameName().equalsIgnoreCase(name));
+            boolean pendingNameCollision =
+                    pendingByConnection.values().stream()
+                            .map(PendingAdmission::gameIdentity)
+                            .filter(java.util.Objects::nonNull)
+                            .anyMatch(identity ->
+                                    identity.gameName()
+                                            .equalsIgnoreCase(name));
+            boolean pendingLoginCollision =
+                    pendingByLogin.values().stream()
+                            .map(PendingAdmission::gameIdentity)
+                            .filter(java.util.Objects::nonNull)
+                            .anyMatch(identity ->
+                                    identity.gameName()
+                                            .equalsIgnoreCase(name));
 
             if (server.getPlayer(uuid).isEmpty()
                     && server.getPlayer(name).isEmpty()
@@ -339,18 +556,23 @@ public final class VelocityIdentityPlugin {
                 return new GameIdentity(uuid, name);
             }
         }
-        throw new IllegalStateException("Unable to allocate a collision-free guest GameIdentity");
+        throw new IllegalStateException(
+                "Unable to allocate a collision-free guest GameIdentity");
     }
 
-    private static String virtualHost(InboundConnection connection) {
+    private static String virtualHost(
+            InboundConnection connection) {
         return connection.getVirtualHost()
                 .map(InetSocketAddress::getHostString)
                 .orElse("");
     }
 
     private void cleanupPending() {
-        long cutoff = System.nanoTime() - PENDING_MAX_AGE_NANOS;
-        pendingByLogin.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
-        pendingByConnection.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
+        long cutoff =
+                System.nanoTime() - PENDING_MAX_AGE_NANOS;
+        pendingByLogin.entrySet().removeIf(
+                entry -> entry.getValue().createdNanos() < cutoff);
+        pendingByConnection.entrySet().removeIf(
+                entry -> entry.getValue().createdNanos() < cutoff);
     }
 }

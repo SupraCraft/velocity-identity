@@ -1,0 +1,43 @@
+name: workload-qualification
+
+on:
+  push:
+    paths:
+      - '.github/workflows/workload-qualification.yml'
+      - 'src/main/java/io/github/supracraft/velocityidentity/ProviderRequest.java'
+      - 'src/main/java/io/github/supracraft/velocityidentity/PolicyPlanner.java'
+      - 'src/main/java/io/github/supracraft/velocityidentity/ReconciliationService.java'
+      - 'src/main/java/io/github/supracraft/velocityidentity/VelocityIdentityPlugin.java'
+      - 'src/main/java/io/github/supracraft/velocityidentity/Workload*.java'
+      - 'scripts/workload-backend-client.js'
+      - 'scripts/workload-negative-client.js'
+      - 'scripts/workload-paper-live.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workload-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  paper:
+    name: External Ed25519 workload / Paper 1.21.4
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up exact Temurin 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25.0.4+7.0.LTS'
+          check-latest: false
+          force-download: true
+
+      - name: Qualify externally provisioned workload end-to-end
+        run: |
+          chmod +x gradlew scripts/workload-paper-live.sh
+          scripts/workload-paper-live.sh
