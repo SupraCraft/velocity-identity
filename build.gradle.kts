@@ -5,7 +5,7 @@ plugins {
 
 group = "io.github.supracraft"
 version = "0.1.0-SNAPSHOT"
-description = "Provider-neutral identity and admission for Velocity"
+description = "Velocity Identity Plugin (VIP): provider-neutral identity and admission for Velocity"
 
 val velocityStableVersion = "4.2.0"
 val velocityVersion = providers.gradleProperty("velocityVersion").orElse(velocityStableVersion).get()
