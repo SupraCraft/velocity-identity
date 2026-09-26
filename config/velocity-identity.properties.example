@@ -5,3 +5,8 @@ default.servers=*
 # Explicit guest example. Guest is admitted but not authenticated.
 # host.guest.example.net.class=GUEST
 # host.guest.example.net.servers=guest-gym
+
+# Explicit workload example. Requires a validated workloads.properties
+# containing public verifier material for the provisioned workload identity.
+# host.workload.example.net.class=WORKLOAD
+# host.workload.example.net.servers=bot-gym
