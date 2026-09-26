@@ -6,7 +6,9 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.connection.LoginEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
+import com.velocitypowered.api.event.connection.PreTransferEvent;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
@@ -20,18 +22,25 @@ import org.slf4j.Logger;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class VelocityIdentityPlugin {
     private static final Component UNAVAILABLE =
             Component.text("This admission method is not currently available.");
     private static final Component SESSION_MISSING =
             Component.text("Identity admission state is unavailable; reconnect.");
+    private static final Component AUTHORITY_NOT_READY =
+            Component.text("Identity authority is not ready; reconnect later.");
+    private static final Component IDENTITY_CONFLICT =
+            Component.text("Another plugin changed the identity login mode; connection denied.");
+    private static final Component PROFILE_CONFLICT =
+            Component.text("The resolved Minecraft profile changed unexpectedly; connection denied.");
+    private static final Component ROUTE_VIOLATION =
+            Component.text("Identity policy denied the resulting server connection.");
 
     private static final long PENDING_MAX_AGE_NANOS = 5L * 60L * 1_000_000_000L;
 
@@ -39,11 +48,15 @@ public final class VelocityIdentityPlugin {
     private final Logger logger;
     private final Path dataDirectory;
     private final PolicyRuntime runtime = new PolicyRuntime(AdmissionPolicy.microsoftOnly());
+    private final AuthorityGate authorityGate = new AuthorityGate();
+    private final AtomicLong generation = new AtomicLong();
 
     private final Map<InboundConnection, PendingAdmission> pendingByConnection =
-            Collections.synchronizedMap(new WeakHashMap<>());
-    private final Map<UUID, PendingAdmission> pendingByUuid = new ConcurrentHashMap<>();
-    private final Map<UUID, ActiveSession> sessions = new ConcurrentHashMap<>();
+            new ConcurrentHashMap<>();
+    private final Map<PendingLoginKey, PendingAdmission> pendingByLogin =
+            new ConcurrentHashMap<>();
+    private final Map<Player, ActiveSession> sessions =
+            new ConcurrentHashMap<>();
 
     @Inject
     public VelocityIdentityPlugin(
@@ -78,20 +91,33 @@ public final class VelocityIdentityPlugin {
                     PolicyVerifier.verify(plan, verificationObservation, runtime.current());
             evidence.writeVerification(verification);
 
+            boolean verified = (receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
+                    || receipt.status() == ApplyReceipt.ApplyStatus.NOOP)
+                    && verification.status() == VerificationReport.VerificationStatus.PASS;
+
+            if (verified) {
+                authorityGate.markVerified();
+            } else {
+                authorityGate.markFailure();
+            }
+
             logger.info(
-                    "Velocity Identity reconciliation status={} verify={} plan={}",
+                    "VelocityIdentity reconciliation readiness={} apply={} verify={} plan={}",
+                    authorityGate.readiness(),
                     receipt.status(),
                     verification.status(),
                     plan.planFingerprint());
 
-            if (receipt.status() == ApplyReceipt.ApplyStatus.BLOCKED
-                    || receipt.status() == ApplyReceipt.ApplyStatus.STALE
-                    || verification.status() != VerificationReport.VerificationStatus.PASS) {
-                logger.warn("Velocity Identity kept or returned to its last verified effective policy.");
+            if (!verified) {
+                logger.warn(
+                        "VelocityIdentity has no newly verified policy; readiness={}.",
+                        authorityGate.readiness());
             }
         } catch (Exception error) {
+            authorityGate.markFailure();
             logger.error(
-                    "Velocity Identity initialization failed; retaining fail-closed Microsoft-only policy",
+                    "VelocityIdentity initialization failed; new connections remain fail-closed. readiness={}",
+                    authorityGate.readiness(),
                     error);
         }
     }
@@ -101,23 +127,42 @@ public final class VelocityIdentityPlugin {
         if (!event.getResult().isAllowed()) {
             return;
         }
+        if (!authorityGate.acceptsLogins()) {
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(AUTHORITY_NOT_READY));
+            return;
+        }
 
         cleanupPending();
         AdmissionProfile profile = runtime.current().select(virtualHost(event.getConnection()));
+        long connectionGeneration = generation.incrementAndGet();
 
         switch (profile.admissionClass()) {
             case MICROSOFT -> {
+                if (event.getResult().isForceOfflineMode()) {
+                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(IDENTITY_CONFLICT));
+                    return;
+                }
                 pendingByConnection.put(
                         event.getConnection(),
-                        new PendingAdmission(profile, null, System.nanoTime()));
+                        new PendingAdmission(profile, null, null, connectionGeneration, System.nanoTime()));
                 event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
             }
             case GUEST -> {
-                UUID uuid = UUID.randomUUID();
-                GameIdentity identity = new GameIdentity(uuid, GameNames.guest(uuid));
+                if (event.getResult().isOnlineModeAllowed()) {
+                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(IDENTITY_CONFLICT));
+                    return;
+                }
+                GameIdentity identity = allocateGuestIdentity();
+                GameProfile expectedProfile =
+                        new GameProfile(identity.gameUuid(), identity.gameName(), List.of());
                 pendingByConnection.put(
                         event.getConnection(),
-                        new PendingAdmission(profile, identity, System.nanoTime()));
+                        new PendingAdmission(
+                                profile,
+                                identity,
+                                expectedProfile,
+                                connectionGeneration,
+                                System.nanoTime()));
                 event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
             }
             case FEDERATED, WORKLOAD ->
@@ -137,18 +182,25 @@ public final class VelocityIdentityPlugin {
                 if (!event.isOnlineMode()) {
                     return;
                 }
-                pendingByUuid.put(event.getGameProfile().getId(), pending);
+
+                // Preserve the actual profile produced by native Mojang authentication.
+                GameProfile nativeProfile = event.getOriginalProfile();
+                event.setGameProfile(nativeProfile);
+
+                PendingAdmission resolved = pending.withExpectedProfile(nativeProfile);
+                pendingByLogin.put(
+                        PendingLoginKey.of(nativeProfile.getId(), event.getConnection()),
+                        resolved);
             }
             case GUEST -> {
-                if (event.isOnlineMode() || pending.gameIdentity() == null) {
+                if (event.isOnlineMode() || pending.expectedProfile() == null) {
                     return;
                 }
-                GameIdentity identity = pending.gameIdentity();
-                event.setGameProfile(new GameProfile(
-                        identity.gameUuid(),
-                        identity.gameName(),
-                        List.of()));
-                pendingByUuid.put(identity.gameUuid(), pending);
+
+                event.setGameProfile(pending.expectedProfile());
+                pendingByLogin.put(
+                        PendingLoginKey.of(pending.expectedProfile().getId(), event.getConnection()),
+                        pending);
             }
             case FEDERATED, WORKLOAD -> {
                 // PreLogin denies these classes until a verifier is qualified.
@@ -159,21 +211,44 @@ public final class VelocityIdentityPlugin {
     @Subscribe(priority = Short.MIN_VALUE)
     public void onLogin(LoginEvent event) {
         Player player = event.getPlayer();
-        PendingAdmission pending = pendingByUuid.remove(player.getUniqueId());
-        if (pending == null) {
+        PendingAdmission pending = pendingByLogin.remove(
+                PendingLoginKey.of(player.getUniqueId(), player));
+
+        if (pending == null || pending.expectedProfile() == null || pending.gameIdentity() == null) {
             event.setResult(ResultedEvent.ComponentResult.denied(SESSION_MISSING));
             return;
         }
 
-        if (pending.profile().admissionClass() == AdmissionClass.MICROSOFT
-                && event.getServerIdHash() == null) {
-            event.setResult(ResultedEvent.ComponentResult.denied(SESSION_MISSING));
+        if (!GameProfileInvariant.matchesExactly(pending.expectedProfile(), player.getGameProfile())) {
+            event.setResult(ResultedEvent.ComponentResult.denied(PROFILE_CONFLICT));
             return;
+        }
+
+        switch (pending.profile().admissionClass()) {
+            case MICROSOFT -> {
+                if (!player.isOnlineMode() || event.getServerIdHash() == null) {
+                    event.setResult(ResultedEvent.ComponentResult.denied(IDENTITY_CONFLICT));
+                    return;
+                }
+            }
+            case GUEST -> {
+                if (player.isOnlineMode()) {
+                    event.setResult(ResultedEvent.ComponentResult.denied(IDENTITY_CONFLICT));
+                    return;
+                }
+            }
+            case FEDERATED, WORKLOAD -> {
+                event.setResult(ResultedEvent.ComponentResult.denied(UNAVAILABLE));
+                return;
+            }
         }
 
         sessions.put(
-                player.getUniqueId(),
-                new ActiveSession(player.getUniqueId(), pending.profile(), pending.gameIdentity()));
+                player,
+                new ActiveSession(
+                        pending.profile(),
+                        pending.gameIdentity(),
+                        pending.generation()));
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
@@ -182,7 +257,7 @@ public final class VelocityIdentityPlugin {
             return;
         }
 
-        ActiveSession session = sessions.get(event.getPlayer().getUniqueId());
+        ActiveSession session = sessions.get(event.getPlayer());
         if (session == null) {
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return;
@@ -194,10 +269,62 @@ public final class VelocityIdentityPlugin {
         }
     }
 
+    @Subscribe(priority = Short.MIN_VALUE)
+    public void onPreTransfer(PreTransferEvent event) {
+        if (!event.getResult().isAllowed()) {
+            return;
+        }
+
+        ActiveSession session = sessions.get(event.player());
+        if (session == null || session.profile().admissionClass() != AdmissionClass.MICROSOFT) {
+            event.setResult(PreTransferEvent.TransferResult.denied());
+        }
+    }
+
+    @Subscribe(priority = Short.MIN_VALUE)
+    public void onServerConnected(ServerConnectedEvent event) {
+        ActiveSession session = sessions.get(event.getPlayer());
+        String serverName = event.getServer().getServerInfo().getName();
+
+        if (session == null || !session.profile().allowsServer(serverName)) {
+            logger.error(
+                    "VelocityIdentity postcondition violation: player={} uuid={} server={}; disconnecting",
+                    event.getPlayer().getUsername(),
+                    event.getPlayer().getUniqueId(),
+                    serverName);
+            event.getPlayer().disconnect(ROUTE_VIOLATION);
+        }
+    }
+
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
-        sessions.remove(event.getPlayer().getUniqueId());
-        pendingByUuid.remove(event.getPlayer().getUniqueId());
+        Player player = event.getPlayer();
+        sessions.remove(player);
+        pendingByLogin.remove(PendingLoginKey.of(player.getUniqueId(), player));
+    }
+
+    private GameIdentity allocateGuestIdentity() {
+        for (int attempt = 0; attempt < 16; attempt++) {
+            UUID uuid = UUID.randomUUID();
+            String name = GameNames.guest(uuid);
+
+            boolean pendingNameCollision = pendingByConnection.values().stream()
+                    .map(PendingAdmission::gameIdentity)
+                    .filter(java.util.Objects::nonNull)
+                    .anyMatch(identity -> identity.gameName().equalsIgnoreCase(name));
+            boolean pendingLoginCollision = pendingByLogin.values().stream()
+                    .map(PendingAdmission::gameIdentity)
+                    .filter(java.util.Objects::nonNull)
+                    .anyMatch(identity -> identity.gameName().equalsIgnoreCase(name));
+
+            if (server.getPlayer(uuid).isEmpty()
+                    && server.getPlayer(name).isEmpty()
+                    && !pendingNameCollision
+                    && !pendingLoginCollision) {
+                return new GameIdentity(uuid, name);
+            }
+        }
+        throw new IllegalStateException("Unable to allocate a collision-free guest GameIdentity");
     }
 
     private static String virtualHost(InboundConnection connection) {
@@ -208,9 +335,7 @@ public final class VelocityIdentityPlugin {
 
     private void cleanupPending() {
         long cutoff = System.nanoTime() - PENDING_MAX_AGE_NANOS;
-        pendingByUuid.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
-        synchronized (pendingByConnection) {
-            pendingByConnection.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
-        }
+        pendingByLogin.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
+        pendingByConnection.entrySet().removeIf(entry -> entry.getValue().createdNanos() < cutoff);
     }
 }
