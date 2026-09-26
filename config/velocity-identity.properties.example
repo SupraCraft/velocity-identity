@@ -1,0 +1,7 @@
+# Safe default: normal Microsoft/Mojang authentication only.
+default.class=MICROSOFT
+default.servers=*
+
+# Explicit guest example. Guest is admitted but not authenticated.
+# host.guest.example.net.class=GUEST
+# host.guest.example.net.servers=guest-gym
