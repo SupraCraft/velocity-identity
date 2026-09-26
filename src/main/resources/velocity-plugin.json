@@ -4,5 +4,6 @@
   "version": "${version}",
   "main": "io.github.supracraft.velocityidentity.VelocityIdentityPlugin",
   "description": "Provider-neutral identity and admission for Velocity",
-  "authors": ["SupraCraft"]
+  "authors": ["SupraCraft"],
+  "provides": ["velocity-identity-authority"]
 }
