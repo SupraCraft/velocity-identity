@@ -21,6 +21,6 @@ Do not introduce backend companion plugins, Velocity forks, custom proxy/backend
 - New login remains closed until an effective policy has been independently verified.
 - Native Velocity event listeners are not the provider arbitration mechanism; do not add authentication by racing peer listeners.
 - After an authenticator claims a presented mechanism, its failure is terminal and must not fall through to guest or another provider.
-- Preserve and reverify the native Mojang GameProfile for Microsoft admission and reverify synthetic profiles before login completes.
+- Preserve and reverify the Velocity-verified GameProfile for ONLINE_SESSION admission and reverify synthetic profiles before login completes.
 - Gate external-host transfer separately from registered-backend switching.
-- Paper mixed native/synthetic behavior is UNKNOWN until the blocking compatibility matrix passes.
+- Paper mixed online-session/synthetic behavior is UNKNOWN until the blocking compatibility matrix passes.
