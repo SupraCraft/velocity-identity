@@ -78,6 +78,7 @@ public final class WorkloadIdentityProvider implements IdentityProvider {
             if (!WorkloadChallengeProtocol.verify(
                     binding.publicKey(),
                     presentation.challenge(),
+                    response.keyId(),
                     response.signature())) {
                 return ProviderResult.denied(
                         PROVIDER_ID,
