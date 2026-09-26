@@ -13,7 +13,7 @@ import java.util.Set;
 
 public record VelocityIdentityConfig(AdmissionPolicy desiredPolicy) {
     public static VelocityIdentityConfig defaults() {
-        return new VelocityIdentityConfig(AdmissionPolicy.microsoftOnly());
+        return new VelocityIdentityConfig(AdmissionPolicy.nativeOnly());
     }
 
     public static VelocityIdentityConfig load(Path path) throws IOException {
@@ -27,17 +27,22 @@ public record VelocityIdentityConfig(AdmissionPolicy desiredPolicy) {
         }
 
         AdmissionClass defaultClass = parseClass(
-                properties.getProperty("default.class", "MICROSOFT"));
+                properties.getProperty("default.class", "NATIVE"));
         Set<String> defaultServers = parseServers(
-                properties.getProperty("default.servers",
-                        defaultClass == AdmissionClass.MICROSOFT ? "*" : ""));
+                properties.getProperty(
+                        "default.servers",
+                        defaultClass == AdmissionClass.NATIVE ? "*" : ""));
         AdmissionProfile defaultProfile = new AdmissionProfile(
-                "default", defaultClass, defaultServers);
+                "default",
+                defaultClass,
+                defaultServers);
 
         Set<String> hosts = new HashSet<>();
         for (String key : properties.stringPropertyNames()) {
             if (key.startsWith("host.") && key.endsWith(".class")) {
-                hosts.add(key.substring("host.".length(), key.length() - ".class".length()));
+                hosts.add(key.substring(
+                        "host.".length(),
+                        key.length() - ".class".length()));
             }
         }
 
@@ -45,20 +50,31 @@ public record VelocityIdentityConfig(AdmissionPolicy desiredPolicy) {
         for (String host : hosts) {
             AdmissionClass admissionClass = parseClass(
                     properties.getProperty("host." + host + ".class"));
-            String fallback = admissionClass == AdmissionClass.MICROSOFT ? "*" : "";
+            String fallback =
+                    admissionClass == AdmissionClass.NATIVE ? "*" : "";
             Set<String> servers = parseServers(
-                    properties.getProperty("host." + host + ".servers", fallback));
-            profiles.put(host, new AdmissionProfile(host, admissionClass, servers));
+                    properties.getProperty(
+                            "host." + host + ".servers",
+                            fallback));
+            profiles.put(
+                    host,
+                    new AdmissionProfile(host, admissionClass, servers));
         }
 
-        return new VelocityIdentityConfig(new AdmissionPolicy(defaultProfile, profiles));
+        return new VelocityIdentityConfig(
+                new AdmissionPolicy(defaultProfile, profiles));
     }
 
     private static AdmissionClass parseClass(String value) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("admission class must not be blank");
+            throw new IllegalArgumentException(
+                    "admission class must not be blank");
         }
-        return AdmissionClass.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if ("MICROSOFT".equals(normalized)) {
+            return AdmissionClass.NATIVE;
+        }
+        return AdmissionClass.valueOf(normalized);
     }
 
     private static Set<String> parseServers(String value) {
