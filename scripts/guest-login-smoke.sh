@@ -30,7 +30,7 @@ trap cleanup EXIT
 
 ready=0
 for _ in $(seq 1 160); do
-  if grep -Fq "VelocityIdentity reconciliation readiness=READY" "$log_file" 2>/dev/null; then
+  if grep -Fq "VelocityIdentity reconciliation trigger=startup readiness=READY" "$log_file" 2>/dev/null; then
     ready=1
     break
   fi
