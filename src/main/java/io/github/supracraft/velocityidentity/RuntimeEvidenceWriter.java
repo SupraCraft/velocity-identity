@@ -34,6 +34,11 @@ public final class RuntimeEvidenceWriter {
         write("verification.json", report);
     }
 
+    public void writeWorkloadTrust(
+            WorkloadTrustSummary summary) throws IOException {
+        write("workload-trust.json", summary);
+    }
+
     private void write(String name, Object value) throws IOException {
         Files.createDirectories(stateDirectory);
         Path target = stateDirectory.resolve(name);
