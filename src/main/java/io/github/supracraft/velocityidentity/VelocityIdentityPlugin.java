@@ -96,7 +96,7 @@ public final class VelocityIdentityPlugin {
         }
     }
 
-    @Subscribe(priority = -1000)
+    @Subscribe(priority = Short.MIN_VALUE)
     public void onPreLogin(PreLoginEvent event) {
         if (!event.getResult().isAllowed()) {
             return;
@@ -125,7 +125,7 @@ public final class VelocityIdentityPlugin {
         }
     }
 
-    @Subscribe(priority = -1000)
+    @Subscribe(priority = Short.MIN_VALUE)
     public void onGameProfileRequest(GameProfileRequestEvent event) {
         PendingAdmission pending = pendingByConnection.remove(event.getConnection());
         if (pending == null) {
@@ -156,7 +156,7 @@ public final class VelocityIdentityPlugin {
         }
     }
 
-    @Subscribe(priority = -1000)
+    @Subscribe(priority = Short.MIN_VALUE)
     public void onLogin(LoginEvent event) {
         Player player = event.getPlayer();
         PendingAdmission pending = pendingByUuid.remove(player.getUniqueId());
@@ -176,16 +176,20 @@ public final class VelocityIdentityPlugin {
                 new ActiveSession(player.getUniqueId(), pending.profile(), pending.gameIdentity()));
     }
 
-    @Subscribe(priority = -1000)
+    @Subscribe(priority = Short.MIN_VALUE)
     public void onServerPreConnect(ServerPreConnectEvent event) {
+        if (!event.getResult().isAllowed()) {
+            return;
+        }
+
         ActiveSession session = sessions.get(event.getPlayer().getUniqueId());
         if (session == null) {
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return;
         }
 
-        String serverName = event.getOriginalServer().getServerInfo().getName();
-        if (!session.profile().allowsServer(serverName)) {
+        var target = event.getResult().getServer().orElse(null);
+        if (target == null || !session.profile().allowsServer(target.getServerInfo().getName())) {
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
         }
     }
