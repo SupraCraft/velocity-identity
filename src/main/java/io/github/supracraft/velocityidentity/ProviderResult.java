@@ -21,6 +21,11 @@ public record ProviderResult(
             principal = Objects.requireNonNull(principal, "principal");
             gameIdentity = Objects.requireNonNull(gameIdentity, "gameIdentity");
             gameProfile = Objects.requireNonNull(gameProfile, "gameProfile");
+            if (!gameIdentity.gameUuid().equals(gameProfile.getId())
+                    || !gameIdentity.gameName().equals(gameProfile.getName())) {
+                throw new IllegalArgumentException(
+                        "authenticated GameIdentity must exactly match GameProfile UUID/name");
+            }
         } else if (principal != null || gameIdentity != null || gameProfile != null) {
             throw new IllegalArgumentException("non-authenticated provider result cannot carry identity");
         }
