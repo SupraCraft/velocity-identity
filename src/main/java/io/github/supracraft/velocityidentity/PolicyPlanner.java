@@ -11,6 +11,18 @@ public final class PolicyPlanner {
             EnvironmentObservation observation,
             AdmissionPolicy currentPolicy,
             AdmissionPolicy desiredPolicy) {
+        return plan(
+                observation,
+                currentPolicy,
+                desiredPolicy,
+                false);
+    }
+
+    public static PolicyPlan plan(
+            EnvironmentObservation observation,
+            AdmissionPolicy currentPolicy,
+            AdmissionPolicy desiredPolicy,
+            boolean workloadVerifierReady) {
         List<PlanFinding> findings = new ArrayList<>();
 
         if (desiredPolicy.defaultProfile().admissionClass()
@@ -25,13 +37,15 @@ public final class PolicyPlanner {
                 desiredPolicy.defaultProfile(),
                 "default",
                 observation,
-                findings);
+                findings,
+                workloadVerifierReady);
         desiredPolicy.profilesByHost().forEach(
                 (host, profile) -> inspectProfile(
                         profile,
                         host,
                         observation,
-                        findings));
+                        findings,
+                        workloadVerifierReady));
 
         if (usesOnlineSession(desiredPolicy)
                 && !SessionAuthority.mojang().issuer().equals(
@@ -72,17 +86,22 @@ public final class PolicyPlanner {
             AdmissionProfile profile,
             String selector,
             EnvironmentObservation observation,
-            List<PlanFinding> findings) {
-        if (profile.admissionClass() == AdmissionClass.FEDERATED
-                || profile.admissionClass()
-                == AdmissionClass.WORKLOAD) {
+            List<PlanFinding> findings,
+            boolean workloadVerifierReady) {
+        if (profile.admissionClass() == AdmissionClass.FEDERATED) {
             findings.add(new PlanFinding(
                     PlanFinding.Severity.BLOCKER,
                     "AUTHENTICATOR_UNQUALIFIED",
                     "Admission profile '" + selector
-                            + "' selects "
-                            + profile.admissionClass()
-                            + " but no credential transport/verifier is qualified yet."));
+                            + "' selects FEDERATED but no direct human federation transport/verifier is qualified."));
+        }
+        if (profile.admissionClass() == AdmissionClass.WORKLOAD
+                && !workloadVerifierReady) {
+            findings.add(new PlanFinding(
+                    PlanFinding.Severity.BLOCKER,
+                    "WORKLOAD_TRUST_UNAVAILABLE",
+                    "Admission profile '" + selector
+                            + "' selects WORKLOAD but no validated external workload trust binding is available."));
         }
 
         for (String server : profile.allowedServers()) {
