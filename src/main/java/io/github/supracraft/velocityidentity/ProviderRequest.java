@@ -8,10 +8,24 @@ public record ProviderRequest(
         String mechanism,
         AdmissionProfile admissionProfile,
         GameProfile verifiedProfile,
-        boolean onlineMode) {
+        boolean onlineMode,
+        WorkloadPresentation workloadPresentation) {
 
     public ProviderRequest {
         mechanism = ProviderDescriptor.normalizeMechanism(mechanism);
         admissionProfile = Objects.requireNonNull(admissionProfile, "admissionProfile");
+    }
+
+    public ProviderRequest(
+            String mechanism,
+            AdmissionProfile admissionProfile,
+            GameProfile verifiedProfile,
+            boolean onlineMode) {
+        this(
+                mechanism,
+                admissionProfile,
+                verifiedProfile,
+                onlineMode,
+                null);
     }
 }
