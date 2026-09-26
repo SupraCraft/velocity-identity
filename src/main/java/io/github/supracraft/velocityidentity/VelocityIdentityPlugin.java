@@ -11,6 +11,9 @@ import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyReloadEvent;
+import com.velocitypowered.api.event.proxy.server.ServerRegisteredEvent;
+import com.velocitypowered.api.event.proxy.server.ServerUnregisteredEvent;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.InboundConnection;
 import com.velocitypowered.api.proxy.Player;
@@ -20,8 +23,8 @@ import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,13 +46,15 @@ public final class VelocityIdentityPlugin {
             Component.text("Identity policy denied the resulting server connection.");
 
     private static final long PENDING_MAX_AGE_NANOS = 5L * 60L * 1_000_000_000L;
+    private static final Duration RECONCILE_DEBOUNCE = Duration.ofMillis(250);
 
     private final ProxyServer server;
     private final Logger logger;
-    private final Path dataDirectory;
     private final PolicyRuntime runtime = new PolicyRuntime(AdmissionPolicy.microsoftOnly());
     private final AuthorityGate authorityGate = new AuthorityGate();
+    private final ReconciliationService reconciliation;
     private final AtomicLong generation = new AtomicLong();
+    private final AtomicLong reconciliationRequest = new AtomicLong();
 
     private final Map<InboundConnection, PendingAdmission> pendingByConnection =
             new ConcurrentHashMap<>();
@@ -65,61 +70,30 @@ public final class VelocityIdentityPlugin {
             @DataDirectory Path dataDirectory) {
         this.server = server;
         this.logger = logger;
-        this.dataDirectory = dataDirectory;
+        this.reconciliation =
+                new ReconciliationService(server, dataDirectory, runtime, authorityGate);
     }
 
     @Subscribe
     public void onProxyInitialize(ProxyInitializeEvent ignored) {
-        try {
-            Files.createDirectories(dataDirectory);
-            Path configPath = dataDirectory.resolve("velocity-identity.properties");
-            VelocityIdentityConfig desired = VelocityIdentityConfig.load(configPath);
+        runReconciliation("startup");
+    }
 
-            EnvironmentObservation observation = VelocityObserver.observe(server);
-            PolicyPlan plan = PolicyPlanner.plan(observation, runtime.current(), desired.desiredPolicy());
+    @Subscribe
+    public void onProxyReload(ProxyReloadEvent ignored) {
+        scheduleReconciliation("proxy-reload");
+    }
 
-            RuntimeEvidenceWriter evidence = new RuntimeEvidenceWriter(dataDirectory);
-            evidence.writeObservation(observation);
-            evidence.writePlan(plan);
+    @Subscribe
+    public void onServerRegistered(ServerRegisteredEvent event) {
+        scheduleReconciliation(
+                "server-registered:" + event.registeredServer().getServerInfo().getName());
+    }
 
-            EnvironmentObservation preApplyObservation = VelocityObserver.observe(server);
-            ApplyReceipt receipt = runtime.apply(plan, preApplyObservation);
-            evidence.writeApply(receipt);
-
-            EnvironmentObservation verificationObservation = VelocityObserver.observe(server);
-            VerificationReport verification =
-                    PolicyVerifier.verify(plan, verificationObservation, runtime.current());
-            evidence.writeVerification(verification);
-
-            boolean verified = (receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
-                    || receipt.status() == ApplyReceipt.ApplyStatus.NOOP)
-                    && verification.status() == VerificationReport.VerificationStatus.PASS;
-
-            if (verified) {
-                authorityGate.markVerified();
-            } else {
-                authorityGate.markFailure();
-            }
-
-            logger.info(
-                    "VelocityIdentity reconciliation readiness={} apply={} verify={} plan={}",
-                    authorityGate.readiness(),
-                    receipt.status(),
-                    verification.status(),
-                    plan.planFingerprint());
-
-            if (!verified) {
-                logger.warn(
-                        "VelocityIdentity has no newly verified policy; readiness={}.",
-                        authorityGate.readiness());
-            }
-        } catch (Exception error) {
-            authorityGate.markFailure();
-            logger.error(
-                    "VelocityIdentity initialization failed; new connections remain fail-closed. readiness={}",
-                    authorityGate.readiness(),
-                    error);
-        }
+    @Subscribe
+    public void onServerUnregistered(ServerUnregisteredEvent event) {
+        scheduleReconciliation(
+                "server-unregistered:" + event.unregisteredServer().getServerInfo().getName());
     }
 
     @Subscribe(priority = Short.MIN_VALUE)
@@ -144,7 +118,12 @@ public final class VelocityIdentityPlugin {
                 }
                 pendingByConnection.put(
                         event.getConnection(),
-                        new PendingAdmission(profile, null, null, connectionGeneration, System.nanoTime()));
+                        new PendingAdmission(
+                                profile,
+                                null,
+                                null,
+                                connectionGeneration,
+                                System.nanoTime()));
                 event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
             }
             case GUEST -> {
@@ -183,7 +162,6 @@ public final class VelocityIdentityPlugin {
                     return;
                 }
 
-                // Preserve the actual profile produced by native Mojang authentication.
                 GameProfile nativeProfile = event.getOriginalProfile();
                 event.setGameProfile(nativeProfile);
 
@@ -301,6 +279,43 @@ public final class VelocityIdentityPlugin {
         Player player = event.getPlayer();
         sessions.remove(player);
         pendingByLogin.remove(PendingLoginKey.of(player.getUniqueId(), player));
+    }
+
+    private void scheduleReconciliation(String trigger) {
+        long request = reconciliationRequest.incrementAndGet();
+        server.getScheduler()
+                .buildTask(this, () -> {
+                    if (request == reconciliationRequest.get()) {
+                        runReconciliation(trigger);
+                    }
+                })
+                .delay(RECONCILE_DEBOUNCE)
+                .schedule();
+    }
+
+    private void runReconciliation(String trigger) {
+        try {
+            ReconciliationResult result = reconciliation.reconcile(trigger);
+            logger.info(
+                    "VelocityIdentity reconciliation trigger={} readiness={} apply={} verify={} plan={}",
+                    result.trigger(),
+                    result.readiness(),
+                    result.applyStatus(),
+                    result.verificationStatus(),
+                    result.planFingerprint());
+
+            if (!result.verified()) {
+                logger.warn(
+                        "VelocityIdentity kept its last verified policy; readiness={}.",
+                        result.readiness());
+            }
+        } catch (Exception error) {
+            logger.error(
+                    "VelocityIdentity reconciliation failed trigger={}; readiness={}",
+                    trigger,
+                    authorityGate.readiness(),
+                    error);
+        }
     }
 
     private GameIdentity allocateGuestIdentity() {
