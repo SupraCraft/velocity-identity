@@ -44,4 +44,27 @@ if [[ "$ready" -ne 1 ]]; then
   exit 1
 fi
 
-python3 scripts/guest-login-probe.py 127.0.0.1 25577 769 ClientClaim
+listening=0
+for _ in $(seq 1 80); do
+  if (exec 3<>/dev/tcp/127.0.0.1/25577) 2>/dev/null; then
+    exec 3>&-
+    exec 3<&-
+    listening=1
+    break
+  fi
+  if ! kill -0 "$runner" 2>/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+
+if [[ "$listening" -ne 1 ]]; then
+  cat "$log_file"
+  echo "Velocity never opened its configured listening socket" >&2
+  exit 1
+fi
+
+if ! python3 scripts/guest-login-probe.py 127.0.0.1 25577 769 ClientClaim; then
+  cat "$log_file"
+  exit 1
+fi
