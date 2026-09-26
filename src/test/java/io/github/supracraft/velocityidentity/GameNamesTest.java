@@ -19,6 +19,6 @@ class GameNamesTest {
     @Test
     void guestNameIsDerivedFromProxyOwnedUuid() {
         UUID uuid = UUID.fromString("12345678-1234-5678-9234-567812345678");
-        assertEquals("Guest_12345678", GameNames.guest(uuid));
+        assertEquals("Guest_1234567812", GameNames.guest(uuid));
     }
 }
