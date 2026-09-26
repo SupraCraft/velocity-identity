@@ -155,23 +155,56 @@ public final class WorkloadTrustStore {
 
     private static void validateUniqueGameIdentities(
             Iterable<WorkloadIdentityBinding> values) {
-        Set<UUID> uuids = new HashSet<>();
-        Set<String> names = new HashSet<>();
+        Map<UUID, WorkloadIdentityBinding> byUuid =
+                new HashMap<>();
+        Map<String, WorkloadIdentityBinding> byName =
+                new HashMap<>();
+        Set<String> publicKeys = new HashSet<>();
+
         for (WorkloadIdentityBinding binding : values) {
-            if (!uuids.add(binding.gameIdentity().gameUuid())) {
+            String publicKey = Base64.getEncoder()
+                    .encodeToString(
+                            binding.publicKey().getEncoded());
+            if (!publicKeys.add(publicKey)) {
                 throw new IllegalArgumentException(
-                        "duplicate workload game UUID: "
+                        "the same workload public key cannot identify multiple key IDs");
+            }
+
+            WorkloadIdentityBinding uuidOwner =
+                    byUuid.putIfAbsent(
+                            binding.gameIdentity().gameUuid(),
+                            binding);
+            if (uuidOwner != null
+                    && !sameCanonicalIdentity(
+                    uuidOwner,
+                    binding)) {
+                throw new IllegalArgumentException(
+                        "workload game UUID is assigned to multiple identities: "
                                 + binding.gameIdentity().gameUuid());
             }
+
             String lower = binding.gameIdentity()
                     .gameName()
                     .toLowerCase(java.util.Locale.ROOT);
-            if (!names.add(lower)) {
+            WorkloadIdentityBinding nameOwner =
+                    byName.putIfAbsent(lower, binding);
+            if (nameOwner != null
+                    && !sameCanonicalIdentity(
+                    nameOwner,
+                    binding)) {
                 throw new IllegalArgumentException(
-                        "duplicate workload game name: "
+                        "workload game name is assigned to multiple identities: "
                                 + binding.gameIdentity().gameName());
             }
         }
+    }
+
+    private static boolean sameCanonicalIdentity(
+            WorkloadIdentityBinding first,
+            WorkloadIdentityBinding second) {
+        return first.subject().equals(second.subject())
+                && first.gameIdentity().equals(
+                second.gameIdentity());
     }
 
     private static String calculateFingerprint(
