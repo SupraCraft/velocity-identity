@@ -1,0 +1,48 @@
+name: live-provider-federation
+
+on:
+  push:
+    paths:
+      - 'build.gradle.kts'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'settings.gradle.kts'
+      - 'src/**'
+      - 'scripts/yggdrasil-live-client.js'
+      - 'scripts/drasl-minecrauth-federation-live.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-provider-federation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drasl-minecrauth:
+    name: Drasl authority + Minecrauth fallback
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up exact Temurin 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25.0.4+7.0.LTS'
+          check-latest: false
+          force-download: true
+
+      - name: Set up Go 1.25.0
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.25.0'
+          check-latest: false
+          cache: false
+
+      - name: Qualify two real identity realms behind one session authority
+        run: |
+          chmod +x gradlew scripts/drasl-minecrauth-federation-live.sh
+          scripts/drasl-minecrauth-federation-live.sh

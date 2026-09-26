@@ -1,0 +1,9 @@
+{
+  "id": "velocityidentity",
+  "name": "SupraCraft Velocity Identity Plugin (VIP)",
+  "version": "${version}",
+  "main": "io.github.supracraft.velocityidentity.VelocityIdentityPlugin",
+  "description": "VIP: provider-neutral identity and admission for Velocity",
+  "authors": ["SupraCraft"],
+  "provides": ["velocity-identity-authority"]
+}
