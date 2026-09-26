@@ -58,3 +58,16 @@ An absent configuration is deliberately safe: Microsoft/Mojang authentication on
 ## Project posture
 
 The public repository is a constructive projection of a separately governed development plane. Public builds and tests operate only on the already-public source tree and require no private-repository credentials.
+
+
+## Authority and interoperability
+
+VelocityIdentity declares the Velocity capability `velocity-identity-authority`; Velocity refuses a second plugin that claims the same capability ID.
+
+The authority accepts new logins only after a desired policy has been observed, planned, applied, and independently verified. A later reconciliation failure may continue only with a previously verified last-known-good policy.
+
+Runtime authorization covers both registered backend changes and modern external-host transfer. Guest and other synthetic identities deny external transfer by default.
+
+VanillaCord requires no identity-specific changes: its existing Velocity modern-forwarding v1 path consumes the forwarded UUID, name, and profile properties.
+
+Paper modern forwarding is an integration target, but mixed native-Mojang and synthetic identities on one Paper backend remain a blocking qualification item because Paper's proxy online-mode behavior is configured globally.
