@@ -30,6 +30,11 @@ public final class RuntimeEvidenceWriter {
         write("apply.json", receipt);
     }
 
+    public void clearRollback() throws IOException {
+        Files.createDirectories(stateDirectory);
+        Files.deleteIfExists(stateDirectory.resolve("rollback.json"));
+    }
+
     public void writeRollback(ApplyReceipt receipt) throws IOException {
         write("rollback.json", receipt);
     }

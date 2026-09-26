@@ -97,6 +97,7 @@ public final class ReconciliationService {
                     !desiredWorkloads.isEmpty());
 
             evidence = new RuntimeEvidenceWriter(dataDirectory);
+            evidence.clearRollback();
             evidence.writeObservation(observation);
             evidence.writePlan(plan);
 
