@@ -58,7 +58,12 @@ client.on('login_plugin_request', packet => {
     fail('invalid key id length')
     return
   }
-  const signature = crypto.sign(null, challenge, privateKey)
+  const proof = Buffer.concat([
+    challenge,
+    Buffer.from([1, key.length]),
+    key
+  ])
+  const signature = crypto.sign(null, proof, privateKey)
   const response = Buffer.concat([
     Buffer.from([1, key.length]),
     key,
