@@ -1,5 +1,5 @@
-# Safe default: normal Microsoft/Mojang authentication only.
-default.class=MICROSOFT
+# Safe default: use Velocity's verified online-session path.
+default.class=ONLINE_SESSION
 default.servers=*
 
 # Explicit guest example. Guest is admitted but not authenticated.
