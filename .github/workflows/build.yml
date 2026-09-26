@@ -53,6 +53,11 @@ jobs:
           chmod +x scripts/runtime-smoke.sh
           scripts/runtime-smoke.sh 4.2.0
 
+      - name: Real guest admission smoke
+        run: |
+          chmod +x scripts/guest-login-smoke.sh scripts/guest-login-probe.py
+          scripts/guest-login-smoke.sh 4.2.0
+
   development:
     name: Velocity 4.2.1-SNAPSHOT advisory
     runs-on: ubuntu-24.04
