@@ -79,7 +79,31 @@ class PolicyPlannerTest {
                 plan.findings().stream()
                         .anyMatch(f ->
                                 f.code().equals(
-                                        "AUTHENTICATOR_UNQUALIFIED")));
+                                        "WORKLOAD_TRUST_UNAVAILABLE")));
+    }
+
+
+    @Test
+    void workloadPathIsApplicableWhenTrustIsValidated() {
+        EnvironmentObservation observation = observation();
+        AdmissionPolicy before = AdmissionPolicy.onlineSessionOnly();
+        AdmissionPolicy desired = new AdmissionPolicy(
+                before.defaultProfile(),
+                Map.of(
+                        "actors.example.net",
+                        new AdmissionProfile(
+                                "actors",
+                                AdmissionClass.WORKLOAD,
+                                Set.of("gym"))));
+
+        PolicyPlan plan =
+                PolicyPlanner.plan(
+                        observation,
+                        before,
+                        desired,
+                        true);
+
+        assertTrue(plan.applicable());
     }
 
     @Test
