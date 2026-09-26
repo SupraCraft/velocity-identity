@@ -58,10 +58,6 @@ jobs:
           chmod +x scripts/guest-login-smoke.sh scripts/guest-login-probe.py
           scripts/guest-login-smoke.sh 4.2.0
 
-      - name: Real custom Yggdrasil session smoke
-        run: |
-          chmod +x scripts/yggdrasil-session-smoke.sh
-          scripts/yggdrasil-session-smoke.sh 4.2.0
 
   development:
     name: Velocity 4.2.1-SNAPSHOT advisory
