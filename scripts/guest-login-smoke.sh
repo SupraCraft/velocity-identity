@@ -44,12 +44,11 @@ if [[ "$ready" -ne 1 ]]; then
   exit 1
 fi
 
-listening=0
+listen_port=""
 for _ in $(seq 1 80); do
-  if (exec 3<>/dev/tcp/127.0.0.1/25577) 2>/dev/null; then
-    exec 3>&-
-    exec 3<&-
-    listening=1
+  listen_line="$(grep -E 'Listening on .+:[0-9]+ "$log_file" 2>/dev/null | tail -n 1 || true)"
+  if [[ -n "$listen_line" ]]; then
+    listen_port="$(printf '%s\n' "$listen_line" | sed -E 's/.*:([0-9]+)$/\1/')"
     break
   fi
   if ! kill -0 "$runner" 2>/dev/null; then
@@ -58,13 +57,32 @@ for _ in $(seq 1 80); do
   sleep 0.25
 done
 
-if [[ "$listening" -ne 1 ]]; then
+if [[ -z "$listen_port" ]]; then
   cat "$log_file"
-  echo "Velocity never opened its configured listening socket" >&2
+  echo "Velocity did not report a bound listening endpoint" >&2
   exit 1
 fi
 
-if ! python3 scripts/guest-login-probe.py 127.0.0.1 25577 769 ClientClaim; then
+socket_ready=0
+for _ in $(seq 1 40); do
+  if (exec 3<>"/dev/tcp/127.0.0.1/$listen_port") 2>/dev/null; then
+    exec 3>&-
+    exec 3<&-
+    socket_ready=1
+    break
+  fi
+  sleep 0.1
+done
+
+if [[ "$socket_ready" -ne 1 ]]; then
+  cat "$log_file"
+  echo "Velocity reported port $listen_port but the TCP socket was not reachable" >&2
+  exit 1
+fi
+
+echo "observed_velocity_port=$listen_port"
+
+if ! python3 scripts/guest-login-probe.py 127.0.0.1 "$listen_port" 769 ClientClaim; then
   cat "$log_file"
   exit 1
 fi
