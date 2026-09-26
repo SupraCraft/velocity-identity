@@ -188,7 +188,7 @@ velocity_pid=$!
 
 velocity_ready=0
 for _ in $(seq 1 120); do
-  if grep -Fq "VelocityIdentity reconciliation readiness=READY" "$velocity_log" 2>/dev/null \
+  if grep -Fq "VelocityIdentity reconciliation trigger=startup readiness=READY" "$velocity_log" 2>/dev/null \
       && grep -Fq "Listening on " "$velocity_log" 2>/dev/null; then
     velocity_ready=1
     break
