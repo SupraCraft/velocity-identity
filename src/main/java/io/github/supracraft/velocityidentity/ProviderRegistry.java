@@ -58,6 +58,28 @@ public final class ProviderRegistry {
                             descriptor.id(),
                             "provider returned a mismatched provider id");
                 }
+                if (result.disposition() == ProviderDisposition.AUTHENTICATED) {
+                    if (!descriptor.capabilities().contains(
+                            ProviderCapability.GAME_IDENTITY)) {
+                        return ProviderResult.error(
+                                descriptor.id(),
+                                "authenticated provider lacks GAME_IDENTITY capability");
+                    }
+                    if (!descriptor.capabilities().contains(
+                            ProviderCapability.PRINCIPAL_AUTHENTICATION)
+                            && !descriptor.capabilities().contains(
+                            ProviderCapability.SESSION_VERIFICATION)) {
+                        return ProviderResult.error(
+                                descriptor.id(),
+                                "authenticated provider lacks an authentication/verification capability");
+                    }
+                    if (!descriptor.issuer().equals(
+                            result.principal().issuer())) {
+                        return ProviderResult.error(
+                                descriptor.id(),
+                                "authenticated principal issuer does not match provider trust domain");
+                    }
+                }
                 return result;
             } catch (RuntimeException error) {
                 return ProviderResult.error(
