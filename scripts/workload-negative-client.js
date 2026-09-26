@@ -73,7 +73,12 @@ client.on('login_plugin_request', packet => {
   }
 
   const key = Buffer.from(responseKey, 'ascii')
-  const signature = crypto.sign(null, bytesToSign, signer)
+  const proof = Buffer.concat([
+    bytesToSign,
+    Buffer.from([1, key.length]),
+    key
+  ])
+  const signature = crypto.sign(null, proof, signer)
   const response = Buffer.concat([
     Buffer.from([1, key.length]),
     key,
