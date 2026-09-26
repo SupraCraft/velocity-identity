@@ -12,6 +12,7 @@ public final class ReconciliationService {
     private final PolicyRuntime runtime;
     private final AuthorityGate authorityGate;
     private final SessionAuthority sessionAuthority;
+    private final WorkloadTrustRuntime workloadTrustRuntime;
 
     public ReconciliationService(
             ProxyServer server,
@@ -23,7 +24,8 @@ public final class ReconciliationService {
                 dataDirectory,
                 runtime,
                 authorityGate,
-                SessionAuthority.observeConfigured());
+                SessionAuthority.observeConfigured(),
+                new WorkloadTrustRuntime(WorkloadTrustStore.empty()));
     }
 
     public ReconciliationService(
@@ -32,6 +34,22 @@ public final class ReconciliationService {
             PolicyRuntime runtime,
             AuthorityGate authorityGate,
             SessionAuthority sessionAuthority) {
+        this(
+                server,
+                dataDirectory,
+                runtime,
+                authorityGate,
+                sessionAuthority,
+                new WorkloadTrustRuntime(WorkloadTrustStore.empty()));
+    }
+
+    public ReconciliationService(
+            ProxyServer server,
+            Path dataDirectory,
+            PolicyRuntime runtime,
+            AuthorityGate authorityGate,
+            SessionAuthority sessionAuthority,
+            WorkloadTrustRuntime workloadTrustRuntime) {
         this.server = Objects.requireNonNull(server, "server");
         this.dataDirectory = Objects.requireNonNull(
                 dataDirectory,
@@ -43,6 +61,9 @@ public final class ReconciliationService {
         this.sessionAuthority = Objects.requireNonNull(
                 sessionAuthority,
                 "sessionAuthority");
+        this.workloadTrustRuntime = Objects.requireNonNull(
+                workloadTrustRuntime,
+                "workloadTrustRuntime");
     }
 
     public synchronized ReconciliationResult reconcile(
@@ -54,13 +75,17 @@ public final class ReconciliationService {
                     dataDirectory.resolve("velocity-identity.properties");
             VelocityIdentityConfig desired =
                     VelocityIdentityConfig.load(configPath);
+            WorkloadTrustStore desiredWorkloads =
+                    WorkloadTrustStore.load(
+                            dataDirectory.resolve("workloads.properties"));
 
             EnvironmentObservation observation =
                     VelocityObserver.observe(server, sessionAuthority);
             PolicyPlan plan = PolicyPlanner.plan(
                     observation,
                     runtime.current(),
-                    desired.desiredPolicy());
+                    desired.desiredPolicy(),
+                    !desiredWorkloads.isEmpty());
 
             RuntimeEvidenceWriter evidence =
                     new RuntimeEvidenceWriter(dataDirectory);
@@ -73,12 +98,37 @@ public final class ReconciliationService {
                     runtime.apply(plan, preApplyObservation);
             evidence.writeApply(receipt);
 
+            if (receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
+                    || receipt.status() == ApplyReceipt.ApplyStatus.NOOP) {
+                workloadTrustRuntime.apply(desiredWorkloads);
+            }
+
             EnvironmentObservation verificationObservation =
                     VelocityObserver.observe(server, sessionAuthority);
             VerificationReport verification = PolicyVerifier.verify(
                     plan,
                     verificationObservation,
                     runtime.current());
+
+            WorkloadTrustStore effectiveWorkloads =
+                    workloadTrustRuntime.current();
+            evidence.writeWorkloadTrust(
+                    effectiveWorkloads.summary());
+            if (verification.status()
+                    == VerificationReport.VerificationStatus.PASS
+                    && !effectiveWorkloads.fingerprint().equals(
+                    desiredWorkloads.fingerprint())) {
+                java.util.ArrayList<String> findings =
+                        new java.util.ArrayList<>(
+                                verification.findings());
+                findings.add("workload-trust-mismatch");
+                verification = new VerificationReport(
+                        VerificationReport.VerificationStatus.FAIL,
+                        verification.planFingerprint(),
+                        verification.observedEnvironmentFingerprint(),
+                        verification.effectivePolicyFingerprint(),
+                        findings);
+            }
             evidence.writeVerification(verification);
 
             if ((receipt.status() == ApplyReceipt.ApplyStatus.APPLIED
