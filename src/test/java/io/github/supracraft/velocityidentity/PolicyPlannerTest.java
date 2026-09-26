@@ -14,7 +14,7 @@ class PolicyPlannerTest {
     @Test
     void deterministicPlanForEquivalentInputs() {
         EnvironmentObservation observation = observation();
-        AdmissionPolicy before = AdmissionPolicy.nativeOnly();
+        AdmissionPolicy before = AdmissionPolicy.onlineSessionOnly();
         AdmissionPolicy desired = new AdmissionPolicy(
                 before.defaultProfile(),
                 Map.of(
@@ -47,7 +47,7 @@ class PolicyPlannerTest {
 
         PolicyPlan plan = PolicyPlanner.plan(
                 observation,
-                AdmissionPolicy.nativeOnly(),
+                AdmissionPolicy.onlineSessionOnly(),
                 desired);
 
         assertFalse(plan.applicable());
@@ -61,7 +61,7 @@ class PolicyPlannerTest {
     @Test
     void unqualifiedCredentialedPathIsBlocked() {
         EnvironmentObservation observation = observation();
-        AdmissionPolicy before = AdmissionPolicy.nativeOnly();
+        AdmissionPolicy before = AdmissionPolicy.onlineSessionOnly();
         AdmissionPolicy desired = new AdmissionPolicy(
                 before.defaultProfile(),
                 Map.of(
@@ -101,8 +101,8 @@ class PolicyPlannerTest {
 
         PolicyPlan plan = PolicyPlanner.plan(
                 observation,
-                AdmissionPolicy.nativeOnly(),
-                AdmissionPolicy.nativeOnly());
+                AdmissionPolicy.onlineSessionOnly(),
+                AdmissionPolicy.onlineSessionOnly());
 
         assertTrue(plan.applicable());
         assertTrue(
