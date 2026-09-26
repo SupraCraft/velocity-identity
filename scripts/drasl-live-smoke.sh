@@ -186,9 +186,9 @@ if [[ -z "${listen_port}" ]]; then
 fi
 echo "observed_velocity_port=${listen_port}"
 
-NODE_PATH="${node_dir}/node_modules"   node scripts/drasl-online-client.js   127.0.0.1 "${listen_port}" "${drasl_root}"   "${username}" "${password}" "${player_name}" "${player_uuid}"
+NODE_PATH="${node_dir}/node_modules"   node scripts/yggdrasil-live-client.js   127.0.0.1 "${listen_port}" "${drasl_root}" "${drasl_root}"   "${username}" "${password}" "${player_name}" "${player_uuid}" drasl
 
-NODE_PATH="${node_dir}/node_modules"   node scripts/drasl-bad-password-client.js   127.0.0.1 "${listen_port}" "${drasl_root}"   "${username}" "definitely-wrong-password"
+NODE_PATH="${node_dir}/node_modules"   node scripts/yggdrasil-bad-password-client.js   127.0.0.1 "${listen_port}" "${drasl_root}" "${drasl_root}"   "${username}" "definitely-wrong-password" drasl
 
 python3 - "${observation}" "${drasl_root}" "${drasl_has_joined}" <<'PY'
 import json
