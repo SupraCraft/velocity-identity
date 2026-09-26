@@ -52,6 +52,77 @@ class WorkloadTrustStoreTest {
                         .gameName());
     }
 
+
+    @Test
+    void partialWorkloadRecordIsRejected() throws Exception {
+        var pair = KeyPairGenerator
+                .getInstance("Ed25519")
+                .generateKeyPair();
+        Path file = temp.resolve("workloads.properties");
+        Files.writeString(
+                file,
+                String.join(
+                        System.lineSeparator(),
+                        "issuer=urn:vip:test",
+                        "workload.bot1.public-key="
+                                + Base64.getEncoder().encodeToString(
+                                pair.getPublic().getEncoded()),
+                        "workload.bot1.uuid=59d33a93-bbfe-4dcb-96fa-b2f6412163b9",
+                        "workload.bot1.name=VipBot01"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> WorkloadTrustStore.load(file));
+    }
+
+    @Test
+    void unknownWorkloadFieldIsRejected() throws Exception {
+        Path file = temp.resolve("workloads.properties");
+        Files.writeString(
+                file,
+                String.join(
+                        System.lineSeparator(),
+                        "issuer=urn:vip:test",
+                        "workload.bot1.subject=gym/alpha/0",
+                        "workload.bot1.unexpected=value"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> WorkloadTrustStore.load(file));
+    }
+
+    @Test
+    void duplicateGameNameIsRejectedCaseInsensitively() throws Exception {
+        var first = KeyPairGenerator
+                .getInstance("Ed25519")
+                .generateKeyPair();
+        var second = KeyPairGenerator
+                .getInstance("Ed25519")
+                .generateKeyPair();
+        Path file = temp.resolve("workloads.properties");
+        Files.writeString(
+                file,
+                String.join(
+                        System.lineSeparator(),
+                        "issuer=urn:vip:test",
+                        "workload.a.subject=a",
+                        "workload.a.public-key="
+                                + Base64.getEncoder().encodeToString(
+                                first.getPublic().getEncoded()),
+                        "workload.a.uuid=59d33a93-bbfe-4dcb-96fa-b2f6412163b9",
+                        "workload.a.name=VipBot01",
+                        "workload.b.subject=b",
+                        "workload.b.public-key="
+                                + Base64.getEncoder().encodeToString(
+                                second.getPublic().getEncoded()),
+                        "workload.b.uuid=6f3a7910-78c7-4bd5-8729-729082a7ce40",
+                        "workload.b.name=vipbot01"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> WorkloadTrustStore.load(file));
+    }
+
     @Test
     void duplicateGameIdentityIsRejected() throws Exception {
         var first = KeyPairGenerator

@@ -2,7 +2,7 @@
 
 Velocity Identity Plugin (VIP) is a stock-Velocity plugin for explicit, provider-neutral identity and admission.
 
-The current public MVP consumes Velocity-verified online sessions from the process-wide Minecraft session authority and adds an explicitly configured guest admission path. Mojang is the default online-session authority; a qualified Yggdrasil-compatible authority can replace it at deployment time. WORKLOAD remains fail-closed until its login-phase credential transport and verifier are independently qualified.
+The current public implementation consumes Velocity-verified online sessions from the process-wide Minecraft session authority, supports explicitly selected guest admission, and supports externally provisioned Ed25519 workload identities through Velocity's standard login-plugin-message API. Mojang is the default online-session authority; qualified Yggdrasil-compatible authorities such as Drasl, Minecrauth, and AsterYggdrasil have been exercised through the same ONLINE_SESSION contract.
 
 ## Safety boundary
 
@@ -23,7 +23,7 @@ The plugin writes machine-readable evidence under its Velocity data directory in
 - `observation.json`
 - `plan.json`
 - `apply.json`
-- `verification.json`
+- `verification.json`\n- `workload-trust.json`
 
 Unknown runtime facts remain explicit unknowns rather than inferred from unsupported internals.
 
@@ -70,4 +70,4 @@ Runtime authorization covers both registered backend changes and modern external
 
 VanillaCord requires no identity-specific changes: its existing Velocity modern-forwarding v1 path consumes the forwarded UUID, name, and profile properties.
 
-Paper modern forwarding is an integration target, but mixed online-session and synthetic identities on one Paper backend remain a blocking qualification item because Paper's proxy online-mode behavior is configured globally.
+Paper 1.21.4 modern forwarding has been qualified with ONLINE_SESSION and explicit synthetic identities on the same unchanged backend. Provider verification outages and workload authentication failures remain fail-closed.

@@ -1,0 +1,15 @@
+# Velocity Identity Plugin (VIP) workload verifier material.
+#
+# This file contains PUBLIC verifier material only.
+# The workload provisioner owns private keys and must never place them here.
+#
+# Copy to the plugin data directory as workloads.properties only when
+# enabling a WORKLOAD admission profile.
+
+issuer=urn:supracraft:vip:workload
+
+# Example binding:
+# workload.bot01.subject=gym/alpha/0
+# workload.bot01.public-key=<base64 X.509 DER Ed25519 public key>
+# workload.bot01.uuid=59d33a93-bbfe-4dcb-96fa-b2f6412163b9
+# workload.bot01.name=VipBot01

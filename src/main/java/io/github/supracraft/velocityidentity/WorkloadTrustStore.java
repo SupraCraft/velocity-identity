@@ -58,13 +58,34 @@ public final class WorkloadTrustStore {
                 "issuer",
                 DEFAULT_ISSUER).trim();
         Set<String> keyIds = new HashSet<>();
+        Set<String> allowedFields = Set.of(
+                "subject",
+                "public-key",
+                "uuid",
+                "name");
         for (String property : properties.stringPropertyNames()) {
-            if (property.startsWith("workload.")
-                    && property.endsWith(".subject")) {
-                keyIds.add(property.substring(
-                        "workload.".length(),
-                        property.length() - ".subject".length()));
+            if ("issuer".equals(property)) {
+                continue;
             }
+            if (!property.startsWith("workload.")) {
+                throw new IllegalArgumentException(
+                        "unknown workload trust property: " + property);
+            }
+            String remainder =
+                    property.substring("workload.".length());
+            int separator = remainder.lastIndexOf('.');
+            if (separator <= 0
+                    || separator == remainder.length() - 1) {
+                throw new IllegalArgumentException(
+                        "malformed workload trust property: " + property);
+            }
+            String keyId = remainder.substring(0, separator);
+            String field = remainder.substring(separator + 1);
+            if (!allowedFields.contains(field)) {
+                throw new IllegalArgumentException(
+                        "unknown workload field: " + property);
+            }
+            keyIds.add(keyId);
         }
 
         Map<String, WorkloadIdentityBinding> bindings = new HashMap<>();
