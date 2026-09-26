@@ -16,6 +16,7 @@ import com.velocitypowered.api.event.proxy.server.ServerRegisteredEvent;
 import com.velocitypowered.api.event.proxy.server.ServerUnregisteredEvent;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.InboundConnection;
+import com.velocitypowered.api.proxy.LoginPhaseConnection;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.util.GameProfile;
@@ -24,6 +25,7 @@ import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +57,9 @@ public final class VelocityIdentityPlugin {
     private final PolicyRuntime runtime =
             new PolicyRuntime(AdmissionPolicy.onlineSessionOnly());
     private final AuthorityGate authorityGate = new AuthorityGate();
+    private final WorkloadTrustRuntime workloadTrustRuntime =
+            new WorkloadTrustRuntime(WorkloadTrustStore.empty());
+    private final SecureRandom workloadRandom = new SecureRandom();
     private final ReconciliationService reconciliation;
     private final SessionAuthority sessionAuthority;
     private final ProviderRegistry providers;
@@ -77,13 +82,16 @@ public final class VelocityIdentityPlugin {
         this.logger = logger;
         this.sessionAuthority = SessionAuthority.observeConfigured();
         this.providers = new ProviderRegistry(
-                List.of(new VelocityOnlineSessionProvider(sessionAuthority)));
+                List.of(
+                        new VelocityOnlineSessionProvider(sessionAuthority),
+                        new WorkloadIdentityProvider(workloadTrustRuntime)));
         this.reconciliation = new ReconciliationService(
                 server,
                 dataDirectory,
                 runtime,
                 authorityGate,
-                sessionAuthority);
+                sessionAuthority,
+                workloadTrustRuntime);
     }
 
     @Subscribe
@@ -188,7 +196,89 @@ public final class VelocityIdentityPlugin {
                         PreLoginEvent.PreLoginComponentResult
                                 .forceOfflineMode());
             }
-            case FEDERATED, WORKLOAD ->
+            case WORKLOAD -> {
+                if (event.getResult().isOnlineModeAllowed()) {
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    IDENTITY_CONFLICT));
+                    return;
+                }
+                if (!(event.getConnection()
+                        instanceof LoginPhaseConnection loginPhase)) {
+                    event.setResult(
+                            PreLoginEvent.PreLoginComponentResult.denied(
+                                    UNAVAILABLE));
+                    return;
+                }
+
+                byte[] challenge =
+                        WorkloadChallengeProtocol.newChallenge(
+                                workloadRandom);
+                PendingAdmission pending =
+                        new PendingAdmission(
+                                profile,
+                                null,
+                                null,
+                                null,
+                                null,
+                                false,
+                                connectionGeneration,
+                                System.nanoTime());
+                pendingByConnection.put(
+                        event.getConnection(),
+                        pending);
+
+                loginPhase.sendLoginPluginMessage(
+                        WorkloadChallengeProtocol.CHANNEL,
+                        challenge,
+                        responseBody -> {
+                            PendingAdmission current =
+                                    pendingByConnection.get(
+                                            event.getConnection());
+                            if (current == null
+                                    || current.generation()
+                                    != connectionGeneration
+                                    || responseBody == null) {
+                                return;
+                            }
+
+                            ProviderResult result =
+                                    providers.authenticate(
+                                            new ProviderRequest(
+                                                    WorkloadIdentityProvider.MECHANISM,
+                                                    profile,
+                                                    null,
+                                                    false,
+                                                    new WorkloadPresentation(
+                                                            challenge,
+                                                            responseBody)));
+                            if (result.disposition()
+                                    != ProviderDisposition.AUTHENTICATED) {
+                                logger.warn(
+                                        "VIP workload authentication denied provider={} disposition={} detail={}",
+                                        result.providerId(),
+                                        result.disposition(),
+                                        result.detail());
+                                return;
+                            }
+
+                            pendingByConnection.compute(
+                                    event.getConnection(),
+                                    (connection, observed) -> {
+                                        if (observed == null
+                                                || observed.generation()
+                                                != connectionGeneration) {
+                                            return observed;
+                                        }
+                                        return observed.withProviderResult(
+                                                result);
+                                    });
+                        });
+                event.setResult(
+                        PreLoginEvent.PreLoginComponentResult
+                                .forceOfflineMode());
+            }
+            case FEDERATED ->
                     event.setResult(
                             PreLoginEvent.PreLoginComponentResult.denied(
                                     UNAVAILABLE));
@@ -234,7 +324,7 @@ public final class VelocityIdentityPlugin {
                                 event.getConnection()),
                         resolved);
             }
-            case GUEST -> {
+            case GUEST, WORKLOAD -> {
                 if (event.isOnlineMode()
                         || pending.expectedProfile() == null) {
                     return;
@@ -247,8 +337,8 @@ public final class VelocityIdentityPlugin {
                                 event.getConnection()),
                         pending);
             }
-            case FEDERATED, WORKLOAD -> {
-                // PreLogin denies these classes until a verifier is qualified.
+            case FEDERATED -> {
+                // PreLogin denies direct human federation.
             }
         }
     }
@@ -298,7 +388,18 @@ public final class VelocityIdentityPlugin {
                     return;
                 }
             }
-            case FEDERATED, WORKLOAD -> {
+            case WORKLOAD -> {
+                if (player.isOnlineMode()
+                        || pending.principal() == null
+                        || pending.principal().kind()
+                        != PrincipalKind.WORKLOAD) {
+                    event.setResult(
+                            ResultedEvent.ComponentResult.denied(
+                                    IDENTITY_CONFLICT));
+                    return;
+                }
+            }
+            case FEDERATED -> {
                 event.setResult(
                         ResultedEvent.ComponentResult.denied(
                                 UNAVAILABLE));
