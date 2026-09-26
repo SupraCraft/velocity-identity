@@ -10,13 +10,6 @@ description = "Provider-neutral identity and admission for Velocity"
 val velocityStableVersion = "4.2.0"
 val velocityVersion = providers.gradleProperty("velocityVersion").orElse(velocityStableVersion).get()
 
-repositories {
-    mavenCentral()
-    maven("https://repo.papermc.io/repository/maven-public/") {
-        name = "papermc"
-    }
-}
-
 dependencies {
     compileOnly("com.velocitypowered:velocity-api:$velocityVersion")
     compileOnly("com.google.code.gson:gson:2.14.0")
