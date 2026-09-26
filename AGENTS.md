@@ -24,3 +24,5 @@ Do not introduce backend companion plugins, Velocity forks, custom proxy/backend
 - Preserve and reverify the Velocity-verified GameProfile for ONLINE_SESSION admission and reverify synthetic profiles before login completes.
 - Gate external-host transfer separately from registered-backend switching.
 - Paper mixed online-session/synthetic behavior is UNKNOWN until the blocking compatibility matrix passes.
+
+Provider-family qualification must use real provider services instantiated in the test environment. Mocks, synthetic Yggdrasil/session servers, and fake provider implementations are not acceptance evidence.
