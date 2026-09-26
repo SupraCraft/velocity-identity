@@ -10,10 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class AdmissionPolicyTest {
     @Test
     void hostSelectionIsCaseAndTrailingDotInsensitive() {
-        AdmissionProfile nativeProfile =
+        AdmissionProfile onlineProfile =
                 new AdmissionProfile(
                         "default",
-                        AdmissionClass.NATIVE,
+                        AdmissionClass.ONLINE_SESSION,
                         Set.of("*"));
         AdmissionProfile guest =
                 new AdmissionProfile(
@@ -22,7 +22,7 @@ class AdmissionPolicyTest {
                         Set.of("guest-gym"));
         AdmissionPolicy policy =
                 new AdmissionPolicy(
-                        nativeProfile,
+                        onlineProfile,
                         Map.of("Guest.Example.NET.", guest));
 
         assertEquals(
@@ -32,24 +32,24 @@ class AdmissionPolicyTest {
                 AdmissionClass.GUEST,
                 policy.select("GUEST.EXAMPLE.NET.").admissionClass());
         assertEquals(
-                AdmissionClass.NATIVE,
+                AdmissionClass.ONLINE_SESSION,
                 policy.select("play.example.net").admissionClass());
     }
 
     @Test
     void equivalentPoliciesHaveSameFingerprint() {
-        AdmissionProfile nativeProfile =
+        AdmissionProfile onlineProfile =
                 new AdmissionProfile(
                         "default",
-                        AdmissionClass.NATIVE,
+                        AdmissionClass.ONLINE_SESSION,
                         Set.of("B", "a"));
         AdmissionPolicy left =
-                new AdmissionPolicy(nativeProfile, Map.of());
+                new AdmissionPolicy(onlineProfile, Map.of());
         AdmissionPolicy right =
                 new AdmissionPolicy(
                         new AdmissionProfile(
                                 "default",
-                                AdmissionClass.NATIVE,
+                                AdmissionClass.ONLINE_SESSION,
                                 Set.of("a", "b")),
                         Map.of());
 
