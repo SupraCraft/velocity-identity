@@ -66,26 +66,58 @@ public final class WorkloadChallengeProtocol {
         return new WorkloadResponse(keyId, signature);
     }
 
-    public static boolean verify(
-            PublicKey publicKey,
+    public static byte[] signingPayload(
             byte[] challenge,
-            byte[] signature)
-            throws GeneralSecurityException {
+            String keyId) {
         if (challenge == null
                 || challenge.length != CHALLENGE_LENGTH
                 || !Arrays.equals(
                 MAGIC,
                 Arrays.copyOf(challenge, MAGIC.length))) {
-            return false;
+            throw new IllegalArgumentException(
+                    "invalid workload challenge");
         }
+        byte[] keyBytes = keyId == null
+                ? new byte[0]
+                : keyId.trim().getBytes(StandardCharsets.US_ASCII);
+        if (keyBytes.length < 1 || keyBytes.length > 64) {
+            throw new IllegalArgumentException(
+                    "invalid workload key id length");
+        }
+
+        return ByteBuffer
+                .allocate(
+                        challenge.length
+                                + 2
+                                + keyBytes.length)
+                .put(challenge)
+                .put((byte) 1)
+                .put((byte) keyBytes.length)
+                .put(keyBytes)
+                .array();
+    }
+
+    public static boolean verify(
+            PublicKey publicKey,
+            byte[] challenge,
+            String keyId,
+            byte[] signature)
+            throws GeneralSecurityException {
         if (signature == null
                 || signature.length != SIGNATURE_LENGTH) {
             return false;
         }
 
+        final byte[] payload;
+        try {
+            payload = signingPayload(challenge, keyId);
+        } catch (IllegalArgumentException invalid) {
+            return false;
+        }
+
         Signature verifier = Signature.getInstance("Ed25519");
         verifier.initVerify(publicKey);
-        verifier.update(challenge);
+        verifier.update(payload);
         return verifier.verify(signature);
     }
 
