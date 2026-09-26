@@ -49,7 +49,7 @@ tasks {
     register("printBuildInputs") {
         doLast {
             println("java=25")
-            println("gradle=9.6.1")
+            println("gradle=9.7.1")
             println("velocity=$velocityVersion")
             println("run-velocity=3.1.0")
         }
