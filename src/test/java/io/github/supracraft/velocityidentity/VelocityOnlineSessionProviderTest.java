@@ -13,9 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VelocityOnlineSessionProviderTest {
-    private static final AdmissionProfile NATIVE =
+    private static final AdmissionProfile ONLINE_SESSION =
             new AdmissionProfile(
-                    "native",
+                    "online-session",
                     AdmissionClass.ONLINE_SESSION,
                     Set.of("*"));
 
@@ -31,7 +31,7 @@ class VelocityOnlineSessionProviderTest {
         ProviderResult result = provider.authenticate(
                 new ProviderRequest(
                         VelocityOnlineSessionProvider.MECHANISM,
-                        NATIVE,
+                        ONLINE_SESSION,
                         profile,
                         true));
 
@@ -51,7 +51,7 @@ class VelocityOnlineSessionProviderTest {
     }
 
     @Test
-    void mojangNativeSessionMayTransferExternally() {
+    void mojangOnlineSessionMayTransferExternally() {
         VelocityOnlineSessionProvider provider =
                 new VelocityOnlineSessionProvider(
                         SessionAuthority.mojang());
@@ -59,7 +59,7 @@ class VelocityOnlineSessionProviderTest {
         ProviderResult result = provider.authenticate(
                 new ProviderRequest(
                         VelocityOnlineSessionProvider.MECHANISM,
-                        NATIVE,
+                        ONLINE_SESSION,
                         profile(),
                         true));
 
@@ -67,7 +67,7 @@ class VelocityOnlineSessionProviderTest {
     }
 
     @Test
-    void offlineProfileIsRejectedByNativeSessionProvider() {
+    void offlineProfileIsRejectedByOnlineSessionProvider() {
         VelocityOnlineSessionProvider provider =
                 new VelocityOnlineSessionProvider(
                         SessionAuthority.mojang());
@@ -75,7 +75,7 @@ class VelocityOnlineSessionProviderTest {
         ProviderResult result = provider.authenticate(
                 new ProviderRequest(
                         VelocityOnlineSessionProvider.MECHANISM,
-                        NATIVE,
+                        ONLINE_SESSION,
                         profile(),
                         false));
 
