@@ -53,17 +53,22 @@ echo "minecraft_version=$MINECRAFT_VERSION"
 echo "velocity_version=$VELOCITY_VERSION"
 
 checkout_pinned "$BRIDGE_REPO" "$BRIDGE_SHA" "$work/Bridge"
+checkout_pinned "$VANILLACORD_REPO" "$VANILLACORD_SHA" "$work/VanillaCord"
+
+shared_maven_repo="$work/VanillaCord/.m2/repository"
+mkdir -p "$shared_maven_repo"
+
 (
   cd "$work/Bridge"
   chmod +x mvnw
-  ./mvnw -B -DskipTests install
+  ./mvnw -B -DskipTests -Dmaven.repo.local="$shared_maven_repo" install
 )
 
-checkout_pinned "$VANILLACORD_REPO" "$VANILLACORD_SHA" "$work/VanillaCord"
 (
   cd "$work/VanillaCord"
   chmod +x mvnw
   ./mvnw -B -DskipTests package \
+    -Dmaven.repo.local="$shared_maven_repo" \
     -Dbridge.owner=SupraCraft \
     -Dbridge.version="$BRIDGE_VERSION"
 )
