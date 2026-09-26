@@ -6,6 +6,7 @@ const mc = require('minecraft-protocol')
 const host = process.argv[2] || '127.0.0.1'
 const port = Number(process.argv[3] || 25577)
 const output = process.argv[4] || 'assigned-identity.json'
+const fakeHost = process.argv[5] || undefined
 const claimedName = 'ClientClaim'
 
 let successSeen = false
@@ -27,6 +28,7 @@ const client = mc.createClient({
   username: claimedName,
   version: '1.21.4',
   auth: 'offline',
+  fakeHost,
   disableChatSigning: true
 })
 

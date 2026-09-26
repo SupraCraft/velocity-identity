@@ -1,9 +1,8 @@
 name: live-provider-federation
 
 on:
-  pull_request:
+  push:
     paths:
-      - '.github/workflows/live-provider-federation.yml'
       - 'build.gradle.kts'
       - 'gradle/**'
       - 'gradlew'

@@ -1,9 +1,8 @@
 name: paper-shared-identity-qualification
 
 on:
-  pull_request:
+  push:
     paths:
-      - '.github/workflows/paper-shared-identity.yml'
       - 'build.gradle.kts'
       - 'gradle/**'
       - 'gradlew'

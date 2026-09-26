@@ -175,11 +175,10 @@ echo "paper_velocity_online_mode_true=READY"
 
 npm install --no-audit --no-fund --ignore-scripts --prefix "$node_dir" "minecraft-protocol@$MCP_VERSION" >/dev/null
 
-write_velocity() {
-  local admission="$1"
-  rm -rf "$velocity_run"
-  mkdir -p "$plugin_dir"
-  cat >"$velocity_run/velocity.toml" <<'EOF'
+rm -rf "$velocity_run"
+mkdir -p "$plugin_dir"
+
+cat >"$velocity_run/velocity.toml" <<'EOF'
 config-version = "2.9"
 bind = "127.0.0.1:25577"
 motd = "<green>VIP Paper shared backend"
@@ -192,10 +191,13 @@ forwarding-secret-file = "forwarding.secret"
 kick-existing-players = false
 sample-players-in-ping = false
 enable-player-address-logging = true
+
 [servers]
 backend = "127.0.0.1:25566"
 try = ["backend"]
+
 [forced-hosts]
+
 [advanced]
 compression-threshold = 256
 compression-level = -1
@@ -204,39 +206,44 @@ connection-timeout = 5000
 read-timeout = 30000
 failover-on-unexpected-server-disconnect = false
 accepts-transfers = false
+
 [query]
 enabled = false
 EOF
-  printf '%s\n' "$forwarding_secret" >"$velocity_run/forwarding.secret"
-  cat >"$plugin_dir/velocity-identity.properties" <<EOF
-default.class=$admission
+
+printf '%s\n' "$forwarding_secret" >"$velocity_run/forwarding.secret"
+cat >"$plugin_dir/velocity-identity.properties" <<'EOF'
+default.class=ONLINE_SESSION
 default.servers=backend
+host.guest.vip.test.class=GUEST
+host.guest.vip.test.servers=backend
 EOF
-}
 
-start_velocity() {
-  : >"$velocity_log"
-  JAVA_TOOL_OPTIONS="-Dmojang.sessionserver=$has_joined"     timeout --signal=TERM --kill-after=10s 120s ./gradlew --no-daemon runVelocity     -PvelocityVersion="$VELOCITY_VERSION" >"$velocity_log" 2>&1 &
-  velocity_pid=$!
-  for _ in $(seq 1 180); do
-    grep -Fq "VelocityIdentity reconciliation trigger=startup readiness=READY" "$velocity_log" 2>/dev/null       && grep -Fq "Listening on " "$velocity_log" 2>/dev/null && return 0
-    kill -0 "$velocity_pid" 2>/dev/null || break
-    sleep 0.5
-  done
+JAVA_TOOL_OPTIONS="-Dmojang.sessionserver=$has_joined" \
+  timeout --signal=TERM --kill-after=10s 150s \
+  ./gradlew --no-daemon runVelocity -PvelocityVersion="$VELOCITY_VERSION" \
+  >"$velocity_log" 2>&1 &
+velocity_pid=$!
+
+velocity_ready=0
+for _ in $(seq 1 200); do
+  if grep -Fq "VelocityIdentity reconciliation trigger=startup readiness=READY" "$velocity_log" 2>/dev/null \
+      && grep -Fq "Listening on " "$velocity_log" 2>/dev/null; then
+    velocity_ready=1
+    break
+  fi
+  kill -0 "$velocity_pid" 2>/dev/null || break
+  sleep 0.5
+done
+if [[ "$velocity_ready" -ne 1 ]]; then
   cat "$velocity_log"
-  return 1
-}
+  echo "Velocity did not reach READY for shared Paper policy" >&2
+  exit 1
+fi
 
-stop_velocity() {
-  kill "$velocity_pid" 2>/dev/null || true
-  wait "$velocity_pid" 2>/dev/null || true
-  unset velocity_pid
-}
-
-write_velocity ONLINE_SESSION
-start_velocity
-NODE_PATH="$node_dir/node_modules" node scripts/yggdrasil-backend-client.js   127.0.0.1 25577 "$drasl_root" "$drasl_root" "$username" "$password"   "$player_name" "$online_uuid" "$work/online.json" drasl-paper
-stop_velocity
+NODE_PATH="$node_dir/node_modules" node scripts/yggdrasil-backend-client.js \
+  127.0.0.1 25577 "$drasl_root" "$drasl_root" "$username" "$password" \
+  "$player_name" "$online_uuid" "$work/online.json" drasl-paper
 
 printf 'save-all\n' >&9
 for _ in $(seq 1 60); do
@@ -246,16 +253,15 @@ done
 test -s "$paper/world/playerdata/$online_uuid.dat"
 echo "paper_online_session_identity=PASS"
 
-write_velocity GUEST
-start_velocity
-NODE_PATH="$node_dir/node_modules" node scripts/vanillacord-client.js 127.0.0.1 25577 "$work/guest.json"
-stop_velocity
+NODE_PATH="$node_dir/node_modules" node scripts/vanillacord-client.js \
+  127.0.0.1 25577 "$work/guest.json" guest.vip.test
 
 guest_uuid=$(python3 - "$work/guest.json" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1]))["assigned_uuid"])
 PY
 )
+
 printf 'save-all\n' >&9
 for _ in $(seq 1 60); do
   [[ -s "$paper/world/playerdata/$guest_uuid.dat" ]] && break
@@ -266,6 +272,7 @@ if [[ ! -s "$paper/world/playerdata/$guest_uuid.dat" ]]; then
   cat "$paper_log"
   exit 1
 fi
+
 echo "paper_guest_identity=PASS"
 echo "paper_shared_online_and_synthetic=PASS"
 echo "guest_uuid=$guest_uuid"
