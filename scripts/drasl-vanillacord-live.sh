@@ -140,8 +140,13 @@ mkdir -p "$shared_maven_repo"
 )
 mapfile -t jars < <(find "$work/VanillaCord/artifacts" -maxdepth 1 -type f -name 'supracraft-vanillacord-*.jar' -print | LC_ALL=C sort)
 test "${#jars[@]}" -eq 1
-java -jar "${jars[0]}" "$MINECRAFT_VERSION"
-cp "$work/VanillaCord/out/$MINECRAFT_VERSION.jar" "$backend/server.jar"
+(
+  cd "$work/VanillaCord"
+  rm -f "out/$MINECRAFT_VERSION.jar"
+  java -jar "${jars[0]}" "$MINECRAFT_VERSION"
+  test -s "out/$MINECRAFT_VERSION.jar"
+  cp "out/$MINECRAFT_VERSION.jar" "$backend/server.jar"
+)
 
 cat >"$backend/eula.txt" <<'EOF'
 eula=true
