@@ -21,7 +21,7 @@ mine_root="http://127.0.0.1:18082"
 mine_auth="$mine_root/authlib-injector/authserver"
 mine_session="$mine_root/authlib-injector/sessionserver"
 collision_name='VipCollision'
-local_user='vip_collision_local'
+local_user='vip_col_local'
 local_pass='vip-collision-local-123'
 mine_email='vip-collision@example.com'
 mine_pass='vip-collision-mine-123'
@@ -64,20 +64,6 @@ EOF
 mine_pid=$!
 for _ in $(seq 1 160); do curl -fsS "$mine_root/readyz" >/dev/null 2>&1 && break; sleep 0.25; done
 curl -fsS "$mine_root/readyz" >/dev/null
-
-test "$(curl -sS -o "$work/mine-register.json" -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$mine_root/api/register" --data-binary @- <<EOF
-{"email":"$mine_email","password":"$mine_pass"}
-EOF
-)" = 201
-test "$(curl -sS -o "$work/mine-player.json" -w '%{http_code}' -u "$mine_email:$mine_pass" -H 'Content-Type: application/json' -X POST "$mine_root/api/me/players" --data-binary @- <<EOF
-{"name":"$collision_name"}
-EOF
-)" = 201
-mine_uuid=$(python3 - "$work/mine-player.json" <<'PY'
-import json,sys
-print(json.load(open(sys.argv[1]))["uuid"])
-PY
-)
 
 checkout https://github.com/unmojang/drasl.git "$DRASL_SHA" "$drasl_src"
 ( cd "$drasl_src" && go build -trimpath -o "$work/drasl" . )
@@ -125,6 +111,23 @@ EOF
 local_uuid=$(python3 - "$work/local.json" <<'PY'
 import json,sys
 print(json.load(open(sys.argv[1]))["user"]["players"][0]["uuid"])
+PY
+)
+
+# Create the fallback-realm identity only after the local Drasl identity exists.
+# This exercises a real post-registration collision that Drasl cannot preemptively
+# reject at local account creation time.
+test "$(curl -sS -o "$work/mine-register.json" -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$mine_root/api/register" --data-binary @- <<EOF
+{"email":"$mine_email","password":"$mine_pass"}
+EOF
+)" = 201
+test "$(curl -sS -o "$work/mine-player.json" -w '%{http_code}' -u "$mine_email:$mine_pass" -H 'Content-Type: application/json' -X POST "$mine_root/api/me/players" --data-binary @- <<EOF
+{"name":"$collision_name"}
+EOF
+)" = 201
+mine_uuid=$(python3 - "$work/mine-player.json" <<'PY'
+import json,sys
+print(json.load(open(sys.argv[1]))["uuid"])
 PY
 )
 
