@@ -36,12 +36,29 @@ public final class SignedMembershipProjection {
     private SignedMembershipProjection() {
     }
 
-    public record Verified(MembershipAdmissionPolicy policy,
-                           String digest, String signerFingerprint) {
-        public Verified {
-            policy = Objects.requireNonNull(policy, "policy");
-            digest = validateHash(digest);
-            signerFingerprint = validateHash(signerFingerprint);
+    /** Evidence-bearing value created only by successful signature verification. */
+    public static final class Verified {
+        private final MembershipAdmissionPolicy policy;
+        private final String digest;
+        private final String signerFingerprint;
+
+        private Verified(MembershipAdmissionPolicy policy,
+                         String digest, String signerFingerprint) {
+            this.policy = Objects.requireNonNull(policy, "policy");
+            this.digest = validateHash(digest);
+            this.signerFingerprint = validateHash(signerFingerprint);
+        }
+
+        public MembershipAdmissionPolicy policy() {
+            return policy;
+        }
+
+        public String digest() {
+            return digest;
+        }
+
+        public String signerFingerprint() {
+            return signerFingerprint;
         }
     }
 
