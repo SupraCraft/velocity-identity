@@ -6,6 +6,14 @@ Treat repository state as a product/build surface, not as a place to introduce p
 
 Changes and pull requests may be useful proposals and evidence. Maintainers reconcile accepted changes through the project authority before the next governed projection.
 
+## Cold-start enrollment and identity security gate
+
+Before proposing or implementing an invitation, identity, delegation, cryptographic trust, or cross-realm feature, read the authoritative private VIP issues [#3](https://github.com/SupraCraft/velocity-identity-private/issues/3), [#5](https://github.com/SupraCraft/velocity-identity-private/issues/5), [#6](https://github.com/SupraCraft/velocity-identity-private/issues/6) and the private standards-first security gate (`docs/identity-standards-and-primitive-gate-2026-10-12.md`, access permitting). If inaccessible, mark private decisions UNKNOWN and do not invent public replacement authority.
+
+**Purpose:** Minecraft community membership/authorization; NOT a replacement authentication system. Before adding any security primitive, compare Kerberos realm/ticket semantics (RFC 4120), SPIFFE workload/trust-domain semantics, OAuth token-exchange actor/delegation (RFC 8693) and OAuth audience restrictions (RFC 9700), as applicable. Record `adopt|adapt|defer|reject` with a concrete consumer, existing implementation, threat/test and reason for non-reuse. Prefer existing qualified VIP `ONLINE_SESSION`, `WORKLOAD` and explicit `GUEST` paths. Do not add a KDC, new identity provider, general IAM service, cross-realm federation, or novel client protocol by analogy alone.
+
+**Release guard:** per-install realm/audience binding, independently pinned signing keys, trusted rollback-resistant watermark, session revocation and real mixed-principal login qualification must precede enabling membership enforcement. Source-only plan `READY_FOR_RECONCILIATION` is **not** live VIP admission readiness. Do not weaken physical TrueNAS mutation HOLD.
+
 Required engineering properties:
 - deterministic observe/discover -> plan -> apply -> verify semantics;
 - reproducible and repeatable builds/operations;
