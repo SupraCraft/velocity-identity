@@ -166,6 +166,140 @@ public final class SignedMembershipProjection {
         return new Verified(policy, hash(candidate), hash(pinnedIssuerKey.getEncoded()));
     }
 
+    /**
+     * V2 context binding: reuse the canonical V1 policy *data* and pin its
+     * Ed25519 signature to a particular installing realm and recipient.
+     * Neither a V1 signature nor a V2 signature for another realm can pass.
+     *
+     * Realm IDs must come from an independently trusted deployment source.
+     * Merely reading both values from an untrusted invite is NOT pinning.
+     */
+    public static byte[] realmSigningBytes(
+            byte[] canonicalPolicy,
+            java.util.UUID realmId,
+            java.util.UUID audienceRealmId) {
+        Objects.requireNonNull(canonicalPolicy, "canonicalPolicy");
+        Objects.requireNonNull(realmId, "realmId");
+        Objects.requireNonNull(audienceRealmId, "audienceRealmId");
+        if (canonicalPolicy.length == 0 || canonicalPolicy.length > MAX_BYTES) {
+            throw new SecurityException("invalid scoped membership payload");
+        }
+        String prefix = "VIP-MEMBERSHIP-REALM/2\n"
+                + "REALM\t" + realmId + "\n"
+                + "AUDIENCE\t" + audienceRealmId + "\n";
+        byte[] domain = prefix.getBytes(StandardCharsets.US_ASCII);
+        byte[] signedBytes = new byte[domain.length + canonicalPolicy.length];
+        System.arraycopy(domain, 0, signedBytes, 0, domain.length);
+        System.arraycopy(canonicalPolicy, 0, signedBytes, domain.length,
+                canonicalPolicy.length);
+        return signedBytes;
+    }
+
+    /**
+     * Verified realm/audience context. Constructed only after successful
+     * Ed25519 verification over the V2 context plus V1 policy bytes.
+     */
+    public static final class RealmVerified {
+        private final java.util.UUID realmId;
+        private final java.util.UUID audienceRealmId;
+        private final Verified verified;
+
+        private RealmVerified(java.util.UUID realmId,
+                              java.util.UUID audienceRealmId,
+                              Verified verified) {
+            this.realmId = Objects.requireNonNull(realmId, "realmId");
+            this.audienceRealmId = Objects.requireNonNull(
+                    audienceRealmId, "audienceRealmId");
+            this.verified = Objects.requireNonNull(verified, "verified");
+        }
+
+        public java.util.UUID realmId() {
+            return realmId;
+        }
+
+        public java.util.UUID audienceRealmId() {
+            return audienceRealmId;
+        }
+
+        public MembershipAdmissionPolicy policy() {
+            return verified.policy();
+        }
+
+        public String digest() {
+            return verified.digest();
+        }
+
+        public String signerFingerprint() {
+            return verified.signerFingerprint();
+        }
+    }
+
+    /**
+     * Compare against a separately pinned installing realm and audience.
+     * This does not grant membership or persist trust/antirollback state.
+     */
+    public static RealmVerified verifyForRealm(
+            byte[] candidate,
+            byte[] detachedSignature,
+            PublicKey pinnedIssuerKey,
+            java.util.UUID pinnedRealmId,
+            java.util.UUID expectedAudienceRealmId,
+            Instant now) {
+        Objects.requireNonNull(detachedSignature, "detachedSignature");
+        Objects.requireNonNull(pinnedIssuerKey, "pinnedIssuerKey");
+        Objects.requireNonNull(now, "now");
+        if (detachedSignature.length != 64) {
+            throw new SecurityException("invalid realm signature size");
+        }
+        byte[] signingBytes = realmSigningBytes(
+                candidate, pinnedRealmId, expectedAudienceRealmId);
+        try {
+            Signature verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(pinnedIssuerKey);
+            verifier.update(signingBytes);
+            if (!verifier.verify(detachedSignature)) {
+                throw new SecurityException("membership realm/audience signature invalid");
+            }
+        } catch (GeneralSecurityException invalid) {
+            throw new SecurityException("realm signature verification failed", invalid);
+        }
+
+        MembershipAdmissionPolicy policy = parseCanonical(candidate);
+        if (now.isBefore(policy.validFrom()) || !now.isBefore(policy.expiresAt())) {
+            throw new SecurityException("realm membership outside validity window");
+        }
+        return new RealmVerified(
+                pinnedRealmId, expectedAudienceRealmId,
+                new Verified(policy, hash(signingBytes),
+                        hash(pinnedIssuerKey.getEncoded())));
+    }
+
+    /**
+     * Pure revision fence scoped to the pinned trust domain and recipient.
+     * The caller MUST acquire this state from an independent, durable,
+     * rollback-resistant authority before any runtime APPLY.
+     */
+    public record RealmWatermark(
+            java.util.UUID realmId,
+            java.util.UUID audienceRealmId,
+            Watermark cursor) {
+        public RealmWatermark {
+            Objects.requireNonNull(realmId, "realmId");
+            Objects.requireNonNull(audienceRealmId, "audienceRealmId");
+            cursor = Objects.requireNonNull(cursor, "cursor");
+        }
+
+        public RealmWatermark advance(RealmVerified next) {
+            Objects.requireNonNull(next, "next");
+            if (!realmId.equals(next.realmId())
+                    || !audienceRealmId.equals(next.audienceRealmId())) {
+                throw new SecurityException("membership realm or audience differs");
+            }
+            return new RealmWatermark(realmId, audienceRealmId,
+                    cursor.advance(next.verified));
+        }
+    }
+
     private static MembershipAdmissionPolicy parseCanonical(byte[] bytes) {
         String source;
         try {
