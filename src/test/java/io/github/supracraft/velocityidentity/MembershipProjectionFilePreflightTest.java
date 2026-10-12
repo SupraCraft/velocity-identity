@@ -158,6 +158,7 @@ class MembershipProjectionFilePreflightTest {
                         artifacts.projection(), artifacts.signature(),
                         artifacts.publicKey(), trusted, NOW));
 
+        Files.write(artifacts.projection(), artifacts.expectedPayload());
         Path symlink = temp.resolve("spoofed.sig");
         Files.createSymbolicLink(symlink, artifacts.signature());
         assertThrows(java.io.IOException.class,
