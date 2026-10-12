@@ -246,8 +246,23 @@ public final class SignedMembershipProjection {
     }
 
     private static String encode(String value) {
-        return Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        Objects.requireNonNull(value, "principal identity field");
+        try {
+            ByteBuffer buffer = StandardCharsets.UTF_8.newEncoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .encode(java.nio.CharBuffer.wrap(value));
+            byte[] raw = new byte[buffer.remaining()];
+            buffer.get(raw);
+            String encoded = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(raw);
+            if (!encoded.matches("[A-Za-z0-9_-]{2,2048}")) {
+                throw new IllegalArgumentException("identity field exceeds strict budget");
+            }
+            return encoded;
+        } catch (CharacterCodingException malformed) {
+            throw new IllegalArgumentException("identity field is not valid UTF-8", malformed);
+        }
     }
 
     private static String decode(String value) {
