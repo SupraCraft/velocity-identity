@@ -177,7 +177,8 @@ class SignedMembershipProjectionTest {
         var verified = SignedMembershipProjection.verify(
                 bytes, sign(bytes, issuer), issuer.getPublic(), START);
         var cursor = new SignedMembershipProjection.Watermark(
-                verified.policy().revision(), verified.digest());
+                verified.policy().revision(), verified.digest(),
+                verified.signerFingerprint());
         assertEquals(cursor, cursor.advance(verified));
         var older = snapshot(6);
         byte[] olderBytes = SignedMembershipProjection.canonicalBytes(older);
@@ -195,6 +196,11 @@ class SignedMembershipProjectionTest {
         var advanced = SignedMembershipProjection.verify(
                 futureBytes, sign(futureBytes, issuer), issuer.getPublic(), START);
         assertEquals(8L, cursor.advance(advanced).revision());
+        KeyPair otherSigner = key();
+        var signedByOther = SignedMembershipProjection.verify(
+                futureBytes, sign(futureBytes, otherSigner),
+                otherSigner.getPublic(), START);
+        assertThrows(SecurityException.class, () -> cursor.advance(signedByOther));
     }
 
     @Test
