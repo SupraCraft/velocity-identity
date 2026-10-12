@@ -198,6 +198,25 @@ class SignedMembershipProjectionTest {
     }
 
     @Test
+    void lossyOrOversizeIssuerIdentityCannotBeSigned() {
+        var invalidUtf8 = new CanonicalPrincipal(
+                "urn:supracraft:bad-" + Character.toString((char) 0xD800), "subject", PrincipalKind.WORKLOAD);
+        var invalidPolicy = new MembershipAdmissionPolicy(9, START, END,
+                Map.of(invalidUtf8, new MembershipAdmissionPolicy.Grant(
+                        Set.of("bot_gym"), START, END)), Set.of());
+        assertThrows(IllegalArgumentException.class,
+                () -> SignedMembershipProjection.canonicalBytes(invalidPolicy));
+
+        var hugeIssuer = new CanonicalPrincipal(
+                "a".repeat(1600), "subject", PrincipalKind.WORKLOAD);
+        var huge = new MembershipAdmissionPolicy(9, START, END,
+                Map.of(hugeIssuer, new MembershipAdmissionPolicy.Grant(
+                        Set.of("bot_gym"), START, END)), Set.of());
+        assertThrows(IllegalArgumentException.class,
+                () -> SignedMembershipProjection.canonicalBytes(huge));
+    }
+
+    @Test
     void noWildcardServerAndNoUnsignedRevisionZero() {
         assertThrows(IllegalArgumentException.class,
                 () -> SignedMembershipProjection.canonicalBytes(snapshot(0)));
