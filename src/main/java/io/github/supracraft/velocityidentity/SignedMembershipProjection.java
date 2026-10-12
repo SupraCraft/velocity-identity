@@ -67,16 +67,20 @@ public final class SignedMembershipProjection {
      * A caller must restore an authenticated, durable cursor before invoking
      * this method; it cannot bootstrap itself from an absent cursor.
      */
-    public record Watermark(long revision, String digest) {
+    public record Watermark(long revision, String digest, String signerFingerprint) {
         public Watermark {
             if (revision < 1) {
                 throw new IllegalArgumentException("nonpositive watermark revision");
             }
             digest = validateHash(digest);
+            signerFingerprint = validateHash(signerFingerprint);
         }
 
         public Watermark advance(Verified next) {
             Objects.requireNonNull(next, "next");
+            if (!signerFingerprint.equals(next.signerFingerprint())) {
+                throw new SecurityException("membership signer changed without reauthorization");
+            }
             long nextRevision = next.policy().revision();
             if (nextRevision < revision) {
                 throw new SecurityException("membership snapshot rollback");
@@ -85,7 +89,7 @@ public final class SignedMembershipProjection {
                 throw new SecurityException("membership revision equivocation");
             }
             return nextRevision > revision
-                    ? new Watermark(nextRevision, next.digest())
+                    ? new Watermark(nextRevision, next.digest(), signerFingerprint)
                     : this;
         }
     }
