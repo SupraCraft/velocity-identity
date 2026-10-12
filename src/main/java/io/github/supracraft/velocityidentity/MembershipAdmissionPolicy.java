@@ -80,6 +80,23 @@ public final class MembershipAdmissionPolicy {
         this.revoked = Collections.unmodifiableSet(revokedCopy);
     }
 
+    /** Immutable source fields for canonical signed serialization. */
+    public Instant validFrom() {
+        return validFrom;
+    }
+
+    public Instant expiresAt() {
+        return expiresAt;
+    }
+
+    public Map<CanonicalPrincipal, Grant> grants() {
+        return grants;
+    }
+
+    public Set<CanonicalPrincipal> revoked() {
+        return revoked;
+    }
+
     public long revision() {
         return revision;
     }
