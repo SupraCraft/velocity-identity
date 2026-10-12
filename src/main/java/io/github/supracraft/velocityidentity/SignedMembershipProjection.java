@@ -184,9 +184,9 @@ public final class SignedMembershipProjection {
         if (canonicalPolicy.length == 0 || canonicalPolicy.length > MAX_BYTES) {
             throw new SecurityException("invalid scoped membership payload");
         }
-        String prefix = "VIP-MEMBERSHIP-REALM/2\\n"
-                + "REALM\\t" + realmId + "\\n"
-                + "AUDIENCE\\t" + audienceRealmId + "\\n";
+        String prefix = "VIP-MEMBERSHIP-REALM/2\n"
+                + "REALM\t" + realmId + "\n"
+                + "AUDIENCE\t" + audienceRealmId + "\n";
         byte[] domain = prefix.getBytes(StandardCharsets.US_ASCII);
         byte[] signedBytes = new byte[domain.length + canonicalPolicy.length];
         System.arraycopy(domain, 0, signedBytes, 0, domain.length);
