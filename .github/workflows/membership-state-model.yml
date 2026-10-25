@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/membership-state-model.yml'
       - 'scripts/qualification/vip_membership_state_explorer.py'
+      - 'scripts/qualification/vip_witness_chain_probe.py'
+      - 'docs/membership-witness-cas-and-chain-20261025.md'
       - 'docs/membership-activation-u2b2-model-contract.md'
   workflow_dispatch:
 
@@ -28,3 +30,8 @@ jobs:
           set -euo pipefail
           python3 --version
           python3 scripts/qualification/vip_membership_state_explorer.py --json
+      - name: Falsify weak blob CAS and validate witness chain with explicit external pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification/vip_witness_chain_probe.py --json
