@@ -1,0 +1,30 @@
+name: membership-state-model
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/membership-state-model.yml'
+      - 'scripts/qualification/vip_membership_state_explorer.py'
+      - 'docs/membership-activation-u2b2-model-contract.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: membership-state-model-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  abstract-state-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out sanitized public projection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run bounded no-dependency state explorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 --version
+          python3 scripts/qualification/vip_membership_state_explorer.py --json
