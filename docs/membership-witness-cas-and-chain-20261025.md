@@ -17,6 +17,12 @@ Experimental public repo branch (NOT a witness authority):
 | Rollback to revision 1 | `3ff26791cb9cf0e00963dc997b5299324c1b58cf` | **ACCEPT**, commit `fe654109d98b4102e0b957758ea0c4b1212e42ef`. Blob returned to original SHA |
 | Repeat old expected-SHA write | original `23033e7aaf8faa662ace313032c801e83c4ab076` | **ACCEPT**, commit `5e94d9791f83345311ade5c57d37cae6cd15dbb5` (ABA) |
 
+### Additional live Git ref experiment: Rep-B
+
+A non-force ref update attempted to move the same **synthetic experiment branch** from current commit `5e94d9791f83345311ade5c57d37cae6cd15dbb5` back to ancestor `95b3972a73db1c7a8e322ccbf51d244ec35dac17`, with an explicit expected-head lease and `force=false`. The API **rejected** this operation with `UNPROCESSABLE: rejecting non-fast forward update`. Re-reading the synthetic fixture after the refusal confirmed it still held revision 3.
+
+**Interpretation:** Git ref non-force fast-forward checks reject direct ancestor rewind; that is a *stronger concurrency primitive than an individual file blob SHA*. However, Rep-A already demonstrated that a forward commit can contain the old revision data; neither property protects against authorized false-content append, administrator force/bypass, stale reads, or an untrusted latest-head value. Treat ref-fast-forward + semantic revision verification + independently pinned latest-head and writer governance as a **conditional feasibility candidate only**.
+
 **First failure:** GitHub Contents file-SHA compare-and-swap is neither a persistent monotonic revision fence nor a trustworthy high-watermark, **even when history only advances by ordinary commits**. A normal authorized writer can write old content in a new commit, thereby restoring the original blob SHA; the old expected hash then becomes valid again. No credentialed attacks or force-push were necessary. This counterexample is not evidence that GitHub itself or its security controls are compromised.
 
 ## Candidate consistency improvement, not a trust-root claim
