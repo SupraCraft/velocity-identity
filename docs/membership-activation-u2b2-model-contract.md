@@ -42,6 +42,10 @@ The deterministic standard-library-only reference explores every reachable state
 
 **What this proves:** the model's own invariants, under explicitly assumed synchronous, authoritative witness-read semantics. **What it does not prove:** that GitHub or any future witness actually supplies them; thread/event fairness, immediate session eviction, Java implementation equivalence, real identity authentication, signature trust, proxy network security, or Minecraft 26.3 integration.
 
+## Interleaved prepare / commit negative control
+
+The model also explores a prepared admission that is not yet committed when the independent witness acknowledges a revocation. The intentionally unsafe deferred commit produces `prepare_admission -> acknowledge_revoke -> unsafe_commit_pending_without_revalidate`. The corrected **modeled atomic commit** requires another current-witness check and rejects the stale prepared generation. This result **does not prove** that a real Velocity event handler can atomically coordinate a remote witness read with a Minecraft connection being established; a production design needs an explicit linearization and in-flight cancellation contract. Do not claim instant global revocation across disconnected proxies or immediate eviction of already-connected clients.
+
 ## Dependency-ordered follow-on engineering gates
 
 1. **Witness feasibility** — contrast trusted remote linearizable compare/read and bounded-time leases using disposable, synthetic state. Require independent trust ownership, monotonic signer/revision/digest, race, administrative rollback, clock, partition and restore evidence. If unavailable, mark production authorization **BLOCKED**, keep opt-in enforcement disabled and do not promote.
